@@ -124,11 +124,11 @@ async Task HandleUpdateAsync(ITelegramBotClient bot, Update update, Cancellation
 
             string currencySign = sourceCurrency switch { "USD" => "$", "EUR" => "€", "KZT" => "₸", _ => "RUB" };
 
-            string responseText = $"💰 *Конвертация {originalAmount:N2} {currencySign}:*\n\n" +
-                                  (sourceCurrency != "RUB" ? $"🇷🇺 *RUB:* {resRub:N2} ₽\n" : "") +
-                                  (sourceCurrency != "USD" ? $"💵 *USD:* ${resUsd:N2}\n" : "") +
-                                  (sourceCurrency != "EUR" ? $"💶 *EUR:* {resEur:N2} €\n" : "") +
-                                  (sourceCurrency != "KZT" ? $"🇰🇿 *KZT:* {resKzt:N2} ₸" : "");
+            string responseText = $"💰 *{originalAmount:N2} {currencySign}:*\n\n" +
+                                  (sourceCurrency != "RUB" ? $"*RUB:* {resRub:N2} ₽\n" : "") +
+                                  (sourceCurrency != "USD" ? $"*USD:* ${resUsd:N2}\n" : "") +
+                                  (sourceCurrency != "EUR" ? $"*EUR:* {resEur:N2} €\n" : "") +
+                                  (sourceCurrency != "KZT" ? $"*KZT:* {resKzt:N2} ₸" : "");
 
             await bot.SendMessage(
                 chatId: chatId,
@@ -197,7 +197,7 @@ async Task<Dictionary<string, double>?> GetExchangeRatesAsync()
     }
     catch (Exception ex)
     {
-        Console.Error.WriteLine($"Ошибка при получении курсов валют: {ex.Message}");
+        Console.Error.WriteLine($"Error while getting exchange rates: {ex.Message}");
     }
 
     if (cachedRates.Count > 0) return cachedRates;
@@ -249,7 +249,7 @@ void SaveRepliesToFile()
     }
     catch (Exception ex)
     {
-        Console.Error.WriteLine($"Ошибка при записи в файл {FilePath}: {ex.Message}");
+        Console.Error.WriteLine($"Error while writing file {FilePath}: {ex.Message}");
     }
 }
 
