@@ -31,7 +31,6 @@ namespace AnikiChatBot.Modules
             var kztMatch = Regex.Match(update.Message.Text, @"(\d+(?:[.,]\d+)?)\s*(?:тенге|тг|kzt)\b", RegexOptions.IgnoreCase);
             var uahMatch = Regex.Match(update.Message.Text, @"(\d+(?:[.,]\d+)?)\s*(?:грив[еньеяидлз]*|грн|uah)\b", RegexOptions.IgnoreCase);
             var bynMatch = Regex.Match(update.Message.Text, @"(\d+(?:[.,]\d+)?)\s*(?:бел\.?\s*руб(?:л[яьей]|ь)?|бр|byn)\b", RegexOptions.IgnoreCase);
-
             var cadMatch = Regex.Match(update.Message.Text, @"(?:c\$)\s*(\d+(?:[.,]\d+)?)|(\d+(?:[.,]\d+)?)\s*(?:c\$|cad|канадск[аиоыхьйе]*\s*доллар[аов]*)\b", RegexOptions.IgnoreCase);
 
             var rates = await GetExchangeRatesAsync();

@@ -61,6 +61,13 @@ async Task HandleUpdateAsync(ITelegramBotClient bot, Update update, Cancellation
 
     await currencyModule.HandleCurrencyCommand(bot, update, ct);
 
+    var instagramModule = new InstagramModule
+    {
+        httpClient = httpClient
+    };
+
+    await instagramModule.HandleInstagramCommand(bot, update, ct);
+
     var repeaterModule = new RepeaterModule
     {
         httpClient = httpClient
