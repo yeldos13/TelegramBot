@@ -261,3 +261,4 @@ MigrationBackup/
 .ionide/
 
 FodyWeavers.xsd
+/AnikiChatBot/appsettings.json
