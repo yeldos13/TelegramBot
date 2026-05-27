@@ -23,7 +23,7 @@ namespace AnikiChatBot.Modules
             string sourceCurrency = "";
             double originalAmount = 0;
 
-            var rubMatch = Regex.Match(update.Message.Text, @"(\d+(?:[.,]\d+)?)\s*(?:рубл[яьей]|руб|р)\b", RegexOptions.IgnoreCase);
+            var rubMatch = Regex.Match(update.Message.Text, @"(\d+(?:[.,]\d+)?).*?руб", RegexOptions.IgnoreCase);
             var usdMatch = Regex.Match(update.Message.Text, @"(?:\$|доллар[аов]*)\s*(\d+(?:[.,]\d+)?)|(\d+(?:[.,]\d+)?)\s*(?:\$|доллар[аов]*|бакс[аов]*)\b", RegexOptions.IgnoreCase);
             var eurMatch = Regex.Match(update.Message.Text, @"(?:€|евро)\s*(\d+(?:[.,]\d+)?)|(\d+(?:[.,]\d+)?)\s*(?:€|евро)\b", RegexOptions.IgnoreCase);
             var kztMatch = Regex.Match(update.Message.Text, @"(\d+(?:[.,]\d+)?)\s*(?:тенге|тг|kzt)\b", RegexOptions.IgnoreCase);
