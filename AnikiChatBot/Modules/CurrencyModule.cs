@@ -19,6 +19,8 @@ namespace AnikiChatBot.Modules
 
         public async Task HandleCurrencyCommand(ITelegramBotClient bot, Update update, CancellationToken ct)
         {
+            if (string.IsNullOrEmpty(update.Message?.Text)) return;
+
             double rubAmount = 0;
             string sourceCurrency = "";
             double originalAmount = 0;
@@ -27,10 +29,16 @@ namespace AnikiChatBot.Modules
             var usdMatch = Regex.Match(update.Message.Text, @"(?:\$|доллар[аов]*)\s*(\d+(?:[.,]\d+)?)|(\d+(?:[.,]\d+)?)\s*(?:\$|доллар[аов]*|бакс[аов]*)\b", RegexOptions.IgnoreCase);
             var eurMatch = Regex.Match(update.Message.Text, @"(?:€|евро)\s*(\d+(?:[.,]\d+)?)|(\d+(?:[.,]\d+)?)\s*(?:€|евро)\b", RegexOptions.IgnoreCase);
             var kztMatch = Regex.Match(update.Message.Text, @"(\d+(?:[.,]\d+)?)\s*(?:тенге|тг|kzt)\b", RegexOptions.IgnoreCase);
+            var uahMatch = Regex.Match(update.Message.Text, @"(\d+(?:[.,]\d+)?)\s*(?:грив[еньеяидлз]*|грн|uah)\b", RegexOptions.IgnoreCase);
+            var bynMatch = Regex.Match(update.Message.Text, @"(\d+(?:[.,]\d+)?)\s*(?:бел\.?\s*руб(?:л[яьей]|ь)?|бр|byn)\b", RegexOptions.IgnoreCase);
+
+            var cadMatch = Regex.Match(update.Message.Text, @"(?:c\$)\s*(\d+(?:[.,]\d+)?)|(\d+(?:[.,]\d+)?)\s*(?:c\$|cad|канадск[аиоыхьйе]*\s*доллар[аов]*)\b", RegexOptions.IgnoreCase);
 
             var rates = await GetExchangeRatesAsync();
 
-            if (rates != null && rates.ContainsKey("USD") && rates.ContainsKey("EUR") && rates.ContainsKey("KZT"))
+            if (rates != null && rates.ContainsKey("USD") && rates.ContainsKey("EUR") &&
+                rates.ContainsKey("KZT") && rates.ContainsKey("UAH") &&
+                rates.ContainsKey("BYN") && rates.ContainsKey("CAD"))
             {
                 if (rubMatch.Success && double.TryParse(rubMatch.Groups[1].Value.Replace(',', '.'), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double rub))
                 {
@@ -67,6 +75,34 @@ namespace AnikiChatBot.Modules
                         sourceCurrency = "KZT";
                     }
                 }
+                else if (uahMatch.Success)
+                {
+                    if (double.TryParse(uahMatch.Groups[1].Value.Replace(',', '.'), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double uah))
+                    {
+                        originalAmount = uah;
+                        rubAmount = uah / rates["UAH"];
+                        sourceCurrency = "UAH";
+                    }
+                }
+                else if (bynMatch.Success)
+                {
+                    if (double.TryParse(bynMatch.Groups[1].Value.Replace(',', '.'), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double byn))
+                    {
+                        originalAmount = byn;
+                        rubAmount = byn / rates["BYN"];
+                        sourceCurrency = "BYN";
+                    }
+                }
+                else if (cadMatch.Success)
+                {
+                    string val = !string.IsNullOrEmpty(cadMatch.Groups[1].Value) ? cadMatch.Groups[1].Value : cadMatch.Groups[2].Value;
+                    if (double.TryParse(val.Replace(',', '.'), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double cad))
+                    {
+                        originalAmount = cad;
+                        rubAmount = cad / rates["CAD"];
+                        sourceCurrency = "CAD";
+                    }
+                }
 
                 if (!string.IsNullOrEmpty(sourceCurrency))
                 {
@@ -74,14 +110,29 @@ namespace AnikiChatBot.Modules
                     double resUsd = rubAmount * rates["USD"];
                     double resEur = rubAmount * rates["EUR"];
                     double resKzt = rubAmount * rates["KZT"];
+                    double resUah = rubAmount * rates["UAH"];
+                    double resByn = rubAmount * rates["BYN"];
+                    double resCad = rubAmount * rates["CAD"];
 
-                    string currencySign = sourceCurrency switch { "USD" => "$", "EUR" => "€", "KZT" => "₸", _ => "RUB" };
+                    string headerInfo = sourceCurrency switch
+                    {
+                        "USD" => "🇺🇸 $",
+                        "EUR" => "🇪🇺 €",
+                        "KZT" => "🇰🇿 ₸",
+                        "UAH" => "🇺🇦 ₴",
+                        "BYN" => "🇧🇾 Br",
+                        "CAD" => "🇨🇦 C$",
+                        _ => "🇷🇺 RUB"
+                    };
 
-                    string responseText = $"*{originalAmount:N2} {currencySign}:*\n\n" +
-                                          (sourceCurrency != "RUB" ? $"*RUB:* {resRub:N2} ₽\n" : "") +
-                                          (sourceCurrency != "USD" ? $"*USD:* {resUsd:N2} $\n" : "") +
-                                          (sourceCurrency != "EUR" ? $"*EUR:* {resEur:N2} €\n" : "") +
-                                          (sourceCurrency != "KZT" ? $"*KZT:* {resKzt:N2} ₸" : "");
+                    string responseText = $"*{originalAmount:N2} {headerInfo}:*\n\n" +
+                                          (sourceCurrency != "RUB" ? $"🇷🇺 *RUB:* {resRub:N2} ₽\n" : "") +
+                                          (sourceCurrency != "USD" ? $"🇺🇸 *USD:* {resUsd:N2} $\n" : "") +
+                                          (sourceCurrency != "EUR" ? $"🇪🇺 *EUR:* {resEur:N2} €\n" : "") +
+                                          (sourceCurrency != "KZT" ? $"🇰🇿 *KZT:* {resKzt:N2} ₸\n" : "") +
+                                          (sourceCurrency != "UAH" ? $"🇺🇦 *UAH:* {resUah:N2} ₴\n" : "") +
+                                          (sourceCurrency != "BYN" ? $"🇧🇾 *BYN:* {resByn:N2} Br\n" : "") +
+                                          (sourceCurrency != "CAD" ? $"🇨🇦 *CAD:* {resCad:N2} C$" : "");
 
                     await bot.SendMessage(
                         chatId: update.Message.Chat.Id,
@@ -118,6 +169,9 @@ namespace AnikiChatBot.Modules
                     cachedRates["USD"] = conversionRates.GetProperty("USD").GetDouble();
                     cachedRates["EUR"] = conversionRates.GetProperty("EUR").GetDouble();
                     cachedRates["KZT"] = conversionRates.GetProperty("KZT").GetDouble();
+                    cachedRates["UAH"] = conversionRates.GetProperty("UAH").GetDouble();
+                    cachedRates["BYN"] = conversionRates.GetProperty("BYN").GetDouble();
+                    cachedRates["CAD"] = conversionRates.GetProperty("CAD").GetDouble();
 
                     lastRatesUpdate = DateTime.UtcNow;
                     return cachedRates;

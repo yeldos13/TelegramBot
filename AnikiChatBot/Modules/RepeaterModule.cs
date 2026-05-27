@@ -31,6 +31,9 @@ namespace AnikiChatBot.Modules
                 }
             }
 
+            if (string.IsNullOrWhiteSpace(update.Message.Text))
+                return;
+
             string cleanedText = update.Message.Text.Trim();
             if (repliesDatabase.TryGetValue(cleanedText, out var savedAnswer))
             {
