@@ -4,9 +4,6 @@ using Telegram.Bot.Polling;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
 using Microsoft.Extensions.Configuration;
-using System.Collections.Concurrent;
-using System.Text.RegularExpressions;
-using System.Text.Json;
 using AnikiChatBot.Modules;
 
 var config = new ConfigurationBuilder()
@@ -27,10 +24,6 @@ var botClient = new TelegramBotClient(token);
 using var cts = new CancellationTokenSource();
 using var httpClient = new HttpClient();
 
-const string FilePath = "replies.txt";
-var repliesDatabase = new ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-LoadRepliesFromFile();
-
 DateTime lastRatesUpdate = DateTime.MinValue;
 Dictionary<string, double> cachedRates = new();
 
@@ -48,7 +41,6 @@ botClient.StartReceiving(
 
 var me = await botClient.GetMe();
 Console.WriteLine($"Bot @{me.Username} started. Allowed chat: {allowedChatId}");
-Console.WriteLine($"Loaded {repliesDatabase.Count} pairs from {FilePath}");
 Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
 await Task.Delay(Timeout.Infinite, cts.Token).ContinueWith(_ => { });
 
@@ -69,78 +61,12 @@ async Task HandleUpdateAsync(ITelegramBotClient bot, Update update, Cancellation
 
     await currencyModule.HandleCurrencyCommand(bot, update, ct);
 
-    if (update.Message.ReplyToMessage is { } replyToMessage && !string.IsNullOrWhiteSpace(replyToMessage.Text))
+    var repeaterModule = new RepeaterModule
     {
-        string triggerText = replyToMessage.Text.Replace("\r", "").Replace("\n", " ").Trim();
-        string answerText = update.Message.Text.Replace("\r", "").Replace("\n", " ").Trim();
+        httpClient = httpClient
+    };
 
-        if (triggerText != answerText && !string.IsNullOrEmpty(triggerText) && !string.IsNullOrEmpty(answerText))
-        {
-            repliesDatabase[triggerText] = answerText;
-            SaveRepliesToFile();
-            return;
-        }
-    }
-
-    string cleanedText = update.Message.Text.Trim();
-    if (repliesDatabase.TryGetValue(cleanedText, out var savedAnswer))
-    {
-        await bot.SendMessage(
-            chatId: update.Message.Chat.Id,
-            text: savedAnswer,
-            parseMode: ParseMode.Markdown,
-            replyParameters: new ReplyParameters { MessageId = update.Message.Id },
-            cancellationToken: ct
-        );
-    }
-}
-
-void LoadRepliesFromFile()
-{
-    try
-    {
-        if (!File.Exists(FilePath))
-        {
-            File.Create(FilePath).Dispose();
-            return;
-        }
-
-        var lines = File.ReadAllLines(FilePath);
-        foreach (var line in lines)
-        {
-            if (string.IsNullOrWhiteSpace(line)) continue;
-
-            var parts = line.Split(":::", 2);
-            if (parts.Length == 2)
-            {
-                string trigger = parts[0].Trim();
-                string answer = parts[1].Trim();
-                repliesDatabase[trigger] = answer;
-            }
-        }
-    }
-    catch (Exception ex)
-    {
-        Console.Error.WriteLine($"Error while reading file {FilePath}: {ex.Message}");
-    }
-}
-
-void SaveRepliesToFile()
-{
-    try
-    {
-        var lines = new List<string>();
-        foreach (var kvp in repliesDatabase)
-        {
-            lines.Add($"{kvp.Key}:::{kvp.Value}");
-        }
-
-        File.WriteAllLines(FilePath, lines);
-    }
-    catch (Exception ex)
-    {
-        Console.Error.WriteLine($"Error while writing file {FilePath}: {ex.Message}");
-    }
+    await repeaterModule.HandleRepeaterCommand(bot, update, ct);
 }
 
 Task HandlePollingErrorAsync(ITelegramBotClient bot, Exception ex, CancellationToken ct)
