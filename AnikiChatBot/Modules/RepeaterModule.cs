@@ -18,6 +18,9 @@ namespace AnikiChatBot.Modules
         {
             LoadRepliesFromFile();
 
+            if (string.IsNullOrWhiteSpace(update.Message.Text))
+                return;
+
             if (update.Message.ReplyToMessage is { } replyToMessage && !string.IsNullOrWhiteSpace(replyToMessage.Text))
             {
                 string triggerText = replyToMessage.Text.Replace("\r", "").Replace("\n", " ").Trim();
@@ -30,9 +33,6 @@ namespace AnikiChatBot.Modules
                     return;
                 }
             }
-
-            if (string.IsNullOrWhiteSpace(update.Message.Text))
-                return;
 
             string cleanedText = update.Message.Text.Trim();
             if (repliesDatabase.TryGetValue(cleanedText, out var savedAnswer))
