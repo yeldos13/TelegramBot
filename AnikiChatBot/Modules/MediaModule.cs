@@ -20,21 +20,18 @@ namespace AnikiChatBot.Modules
 
         public async Task HandleMediaCommand(ITelegramBotClient bot, Update update, CancellationToken ct)
         {
-            if (update.Message?.Text == null) return;
+            if (update.Message?.Text == null)
+                return;
 
-            string messageText = update.Message.Text;
-
-            var linkMatch = Regex.Match(messageText, @"https?://[^\s]+");
-            if (!linkMatch.Success) return;
+            var linkMatch = Regex.Match(update.Message.Text, @"https?://[^\s]+");
+            if (!linkMatch.Success)
+                return;
 
             string mediaUrl = linkMatch.Value;
 
             var videoInfo = await _ytdl.RunVideoDataFetch(mediaUrl, ct: ct);
-
             if (!videoInfo.Success)
-            {
                 return;
-            }
 
             string tempFileName = $"{Guid.NewGuid()}_video.mp4";
             string tempFilePath = Path.Combine(Path.GetTempPath(), tempFileName);
@@ -51,22 +48,16 @@ namespace AnikiChatBot.Modules
                 var result = await _ytdl.RunVideoDownload(mediaUrl, overrideOptions: options, ct: ct);
 
                 if (!result.Success)
-                {
                     throw new Exception(string.Join(Environment.NewLine, result.ErrorOutput));
-                }
 
                 string actualFilePath = tempFilePath;
                 if (!File.Exists(actualFilePath))
                 {
                     var matchingFiles = Directory.GetFiles(Path.GetTempPath(), $"{Guid.NewGuid()}_video.*");
                     if (matchingFiles.Length > 0)
-                    {
                         actualFilePath = matchingFiles[0];
-                    }
                     else
-                    {
                         return;
-                    }
                 }
 
                 using (var videoStream = new FileStream(actualFilePath, FileMode.Open, FileAccess.Read))
@@ -80,9 +71,7 @@ namespace AnikiChatBot.Modules
                 }
 
                 if (File.Exists(actualFilePath))
-                {
                     File.Delete(actualFilePath);
-                }
             }
             catch (Exception ex)
             {
