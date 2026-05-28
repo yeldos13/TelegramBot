@@ -46,7 +46,7 @@ await Task.Delay(Timeout.Infinite, cts.Token).ContinueWith(_ => { });
 
 async Task HandleUpdateAsync(ITelegramBotClient bot, Update update, CancellationToken ct)
 {
-    if (update.Message.Chat.Id != allowedChatId)
+    if (update.Message is null || update.Message.Chat.Id != allowedChatId)
         return;
 
     Console.WriteLine($"[{update.Message.Date}] {update.Message.From?.Username}: {update.Message.Text}");
@@ -61,12 +61,12 @@ async Task HandleUpdateAsync(ITelegramBotClient bot, Update update, Cancellation
 
     await currencyModule.HandleCurrencyCommand(bot, update, ct);
 
-    var instagramModule = new InstagramModule
+    var mediaModule = new MediaModule
     {
         httpClient = httpClient
     };
 
-    await instagramModule.HandleInstagramCommand(bot, update, ct);
+    await mediaModule.HandleMediaCommand(bot, update, ct);
 
     var repeaterModule = new RepeaterModule
     {
