@@ -25,12 +25,12 @@ namespace AnikiChatBot.Modules
             string sourceCurrency = "";
             double originalAmount = 0;
 
-            var rubMatch = Regex.Match(update.Message.Text, @"(\d+(?:[.,]\d+)?)\s*(?:рубл[яьей]|руб|р)\b", RegexOptions.IgnoreCase);
+            var rubMatch = Regex.Match(update.Message.Text, @"(\d+(?:[.,]\d+)?)\s*(?:рубл[яьей]+|руб|р)\b", RegexOptions.IgnoreCase);
             var usdMatch = Regex.Match(update.Message.Text, @"(?:\$|доллар[аов]*)\s*(\d+(?:[.,]\d+)?)|(\d+(?:[.,]\d+)?)\s*(?:\$|доллар[аов]*|бакс[аов]*)\b", RegexOptions.IgnoreCase);
             var eurMatch = Regex.Match(update.Message.Text, @"(?:€|евро)\s*(\d+(?:[.,]\d+)?)|(\d+(?:[.,]\d+)?)\s*(?:€|евро)\b", RegexOptions.IgnoreCase);
             var kztMatch = Regex.Match(update.Message.Text, @"(\d+(?:[.,]\d+)?)\s*(?:тенге|тг|kzt)\b", RegexOptions.IgnoreCase);
             var uahMatch = Regex.Match(update.Message.Text, @"(\d+(?:[.,]\d+)?)\s*(?:грив[еньеяидлз]*|грн|uah)\b", RegexOptions.IgnoreCase);
-            var bynMatch = Regex.Match(update.Message.Text, @"(\d+(?:[.,]\d+)?)\s*(?:бел\.?\s*руб(?:л[яьей]|ь)?|бр|byn)\b", RegexOptions.IgnoreCase);
+            var bynMatch = Regex.Match(update.Message.Text, @"(\d+(?:[.,]\d+)?)\s*(?:бел\.?\s*руб(?:л[яьей]+|ь)?|бр|byn)\b", RegexOptions.IgnoreCase);
             var cadMatch = Regex.Match(update.Message.Text, @"(?:c\$)\s*(\d+(?:[.,]\d+)?)|(\d+(?:[.,]\d+)?)\s*(?:c\$|cad|канадск[аиоыхьйе]*\s*доллар[аов]*)\b", RegexOptions.IgnoreCase);
 
             var rates = await GetExchangeRatesAsync();
@@ -119,7 +119,7 @@ namespace AnikiChatBot.Modules
                         "EUR" => "🇪🇺 €",
                         "KZT" => "🇰🇿 ₸",
                         "UAH" => "🇺🇦 ₴",
-                        "BYN" => "🇧🇾 Br",
+                        "BYN" => "🇧🇾 Б",
                         "CAD" => "🇨🇦 C$",
                         _ => "🇷🇺 RUB"
                     };
@@ -130,7 +130,7 @@ namespace AnikiChatBot.Modules
                                           (sourceCurrency != "EUR" ? $"🇪🇺 *EUR:* {resEur:N2} €\n" : "") +
                                           (sourceCurrency != "KZT" ? $"🇰🇿 *KZT:* {resKzt:N2} ₸\n" : "") +
                                           (sourceCurrency != "UAH" ? $"🇺🇦 *UAH:* {resUah:N2} ₴\n" : "") +
-                                          (sourceCurrency != "BYN" ? $"🇧🇾 *BYN:* {resByn:N2} Br\n" : "") +
+                                          (sourceCurrency != "BYN" ? $"🇧🇾 *BYN:* {resByn:N2} Б\n" : "") +
                                           (sourceCurrency != "CAD" ? $"🇨🇦 *CAD:* {resCad:N2} C$" : "");
 
                     await bot.SendMessage(

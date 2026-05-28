@@ -1,16 +1,22 @@
-﻿using System.Text;
-using System.Text.Json;
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 using Telegram.Bot;
 using Telegram.Bot.Types;
+using YoutubeDLSharp;
+using YoutubeDLSharp.Options;
 
 namespace AnikiChatBot.Modules
 {
     public class MediaModule
     {
-        public HttpClient httpClient { get; set; }
+        private readonly YoutubeDL _ytdl;
 
-        private const string CobaltApiUrl = "http://localhost:9000";
+        public MediaModule()
+        {
+            _ytdl = new YoutubeDL();
+
+            _ytdl.YoutubeDLPath = @"C:\YTDLP\yt-dlp.exe";
+            _ytdl.FFmpegPath = @"C:\FFMPEG\bin\ffmpeg.exe";
+        }
 
         public async Task HandleMediaCommand(ITelegramBotClient bot, Update update, CancellationToken ct)
         {
@@ -23,83 +29,59 @@ namespace AnikiChatBot.Modules
 
             string mediaUrl = linkMatch.Value;
 
-            var loadingMessage = await bot.SendMessage(
-                chatId: update.Message.Chat.Id,
-                text: "Скачиваю медиа...",
-                replyParameters: update.Message.MessageId,
-                cancellationToken: ct
-            );
+            string tempFileName = $"{Guid.NewGuid()}_video.mp4";
+            string tempFilePath = Path.Combine(Path.GetTempPath(), tempFileName);
 
             try
             {
-                var requestBody = new
+                var options = new OptionSet
                 {
-                    url = mediaUrl,
-                    videoQuality = "720",
-                    filenameStyle = "basic",
-                    downloadMode = "auto"
+                    Format = "bestvideo[height<=720]+bestaudio/best[height<=720]/best",
+                    MergeOutputFormat = YoutubeDLSharp.Options.DownloadMergeFormat.Mp4,
+                    Output = tempFilePath
                 };
 
-                var jsonOptions = new JsonSerializerOptions
+                var result = await _ytdl.RunVideoDownload(mediaUrl, overrideOptions: options, ct: ct);
+
+                if (!result.Success)
                 {
-                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-                };
-                string jsonPayload = JsonSerializer.Serialize(requestBody, jsonOptions);
-
-                using var request = new HttpRequestMessage(HttpMethod.Post, CobaltApiUrl);
-
-                request.Headers.Add("Accept", "application/json");
-
-                request.Content = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
-
-                var response = await httpClient.SendAsync(request, ct);
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    string errorContent = await response.Content.ReadAsStringAsync(ct);
-                    throw new Exception($"Cobalt API вернул статус {response.StatusCode}: {errorContent}");
+                    throw new Exception(string.Join(Environment.NewLine, result.ErrorOutput));
                 }
 
-                string jsonString = await response.Content.ReadAsStringAsync(ct);
-                using var doc = JsonDocument.Parse(jsonString);
-                var root = doc.RootElement;
-
-                if (root.TryGetProperty("status", out var statusProp) && statusProp.GetString() == "error")
+                string actualFilePath = tempFilePath;
+                if (!File.Exists(actualFilePath))
                 {
-                    string textError = "Неизвестная ошибка Cobalt";
-                    if (root.TryGetProperty("error", out var errorObj) && errorObj.TryGetProperty("code", out var codeProp))
+                    var matchingFiles = Directory.GetFiles(Path.GetTempPath(), $"{Guid.NewGuid()}_video.*");
+                    if (matchingFiles.Length > 0)
                     {
-                        textError = codeProp.GetString() ?? textError;
+                        actualFilePath = matchingFiles[0];
                     }
-                    throw new Exception(textError);
+                    else
+                    {
+                        return;
+                    }
                 }
 
-                if (root.TryGetProperty("url", out var urlProp))
+                using (var videoStream = new FileStream(actualFilePath, FileMode.Open, FileAccess.Read))
                 {
-                    string videoUrl = urlProp.GetString()!;
-
                     await bot.SendVideo(
                         chatId: update.Message.Chat.Id,
-                        video: InputFile.FromUri(videoUrl),
+                        video: InputFile.FromStream(videoStream, "video.mp4"),
                         replyParameters: update.Message.MessageId,
                         cancellationToken: ct
                     );
-
-                    await bot.DeleteMessage(update.Message.Chat.Id, loadingMessage.MessageId, ct);
-                    return;
                 }
 
-                throw new Exception("Не удалось получить прямую ссылку на видео.");
+                if (File.Exists(actualFilePath))
+                {
+                    File.Delete(actualFilePath);
+                }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[Cobalt Error]: {ex.Message}");
-                await bot.EditMessageText(
-                    chatId: update.Message.Chat.Id,
-                    messageId: loadingMessage.MessageId,
-                    text: $"Ошибка скачивания: {ex.Message}",
-                    cancellationToken: ct
-                );
+                Console.WriteLine($"[yt-dlp Error]: {ex.Message}");
+
+                if (File.Exists(tempFilePath)) File.Delete(tempFilePath);
             }
         }
     }

@@ -63,7 +63,6 @@ async Task HandleUpdateAsync(ITelegramBotClient bot, Update update, Cancellation
 
     var mediaModule = new MediaModule
     {
-        httpClient = httpClient
     };
 
     await mediaModule.HandleMediaCommand(bot, update, ct);
