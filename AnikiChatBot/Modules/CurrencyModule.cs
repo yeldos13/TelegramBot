@@ -126,10 +126,8 @@ namespace AnikiChatBot.Modules
 
         async Task<Dictionary<string, double>?> GetExchangeRatesAsync()
         {
-            if ((DateTime.UtcNow - lastRatesUpdate).TotalHours < 1 && cachedRates.Count > 0)
-            {
+            if ((DateTime.UtcNow - lastRatesUpdate).TotalHours < 6 && cachedRates.Count > 0)
                 return cachedRates;
-            }
 
             try
             {
