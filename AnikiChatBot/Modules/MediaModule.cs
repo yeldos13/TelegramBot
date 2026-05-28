@@ -24,10 +24,17 @@ namespace AnikiChatBot.Modules
 
             string messageText = update.Message.Text;
 
-            var linkMatch = Regex.Match(messageText, @"https?://(www\.|vm\.|vt\.|v\.|music\.)?(instagram\.com|tiktok\.com|youtube\.com|youtu\.be|twitter\.com|x\.com|reddit\.com|pinterest\.com|vk\.com)/[^\s]+");
+            var linkMatch = Regex.Match(messageText, @"https?://[^\s]+");
             if (!linkMatch.Success) return;
 
             string mediaUrl = linkMatch.Value;
+
+            var videoInfo = await _ytdl.RunVideoDataFetch(mediaUrl, ct: ct);
+
+            if (!videoInfo.Success)
+            {
+                return;
+            }
 
             string tempFileName = $"{Guid.NewGuid()}_video.mp4";
             string tempFilePath = Path.Combine(Path.GetTempPath(), tempFileName);
