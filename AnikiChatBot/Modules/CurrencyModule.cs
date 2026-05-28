@@ -10,135 +10,118 @@ namespace AnikiChatBot.Modules
     {
         public DateTime lastRatesUpdate;
         public string exchangeApiKey;
-        public Dictionary<string, double> cachedRates;
+        public Dictionary<string, double> cachedRates = new Dictionary<string, double>();
         public HttpClient httpClient;
+
+        private static readonly Regex NamedCurrencyRegex = new Regex(
+            @"(?:(\d+(?:[.,]\d+)?)\s*(?:рубл[яьей]+|руб|р|₽)\b)|" +
+            @"(?:(?:\$|доллар[аов]*|бакс[аов]*)\s*(\d+(?:[.,]\d+)?)|(\d+(?:[.,]\d+)?)\s*(?:\$|доллар[аов]*|бакс[аов]*)\b)|" +
+            @"(?:(?:€|евро)\s*(\d+(?:[.,]\d+)?)|(\d+(?:[.,]\d+)?)\s*(?:€|евро)\b)|" +
+            @"(?:(\d+(?:[.,]\d+)?)\s*(?:тенге|тг|kzt|₸)\b)|" +
+            @"(?:(\d+(?:[.,]\d+)?)\s*(?:грив[еньеяидлз]*|грн|uah|₴)\b)|" +
+            @"(?:(\d+(?:[.,]\d+)?)\s*(?:бел\.?\s*руб(?:л[яьей]+|ь)?|бр|byn)\b)|" +
+            @"(?:(?:c\$)\s*(\d+(?:[.,]\d+)?)|(\d+(?:[.,]\d+)?)\s*(?:c\$|cad|канадск[аиоыхьйе]*\s*доллар[аов]*)\b)",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex GenericCurrencyRegex = new Regex(
+            @"(?:(\d+(?:[.,]\d+)?)\s*([a-zA-Z]{3})\b)",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         public async Task HandleCurrencyCommand(ITelegramBotClient bot, Update update, CancellationToken ct)
         {
             if (string.IsNullOrEmpty(update.Message?.Text)) return;
 
-            double rubAmount = 0;
+            string amountStr = "";
             string sourceCurrency = "";
-            double originalAmount = 0;
 
-            var rubMatch = Regex.Match(update.Message.Text, @"(\d+(?:[.,]\d+)?)\s*(?:рубл[яьей]+|руб|р)\b", RegexOptions.IgnoreCase);
-            var usdMatch = Regex.Match(update.Message.Text, @"(?:\$|доллар[аов]*)\s*(\d+(?:[.,]\d+)?)|(\d+(?:[.,]\d+)?)\s*(?:\$|доллар[аов]*|бакс[аов]*)\b", RegexOptions.IgnoreCase);
-            var eurMatch = Regex.Match(update.Message.Text, @"(?:€|евро)\s*(\d+(?:[.,]\d+)?)|(\d+(?:[.,]\d+)?)\s*(?:€|евро)\b", RegexOptions.IgnoreCase);
-            var kztMatch = Regex.Match(update.Message.Text, @"(\d+(?:[.,]\d+)?)\s*(?:тенге|тг|kzt)\b", RegexOptions.IgnoreCase);
-            var uahMatch = Regex.Match(update.Message.Text, @"(\d+(?:[.,]\d+)?)\s*(?:грив[еньеяидлз]*|грн|uah)\b", RegexOptions.IgnoreCase);
-            var bynMatch = Regex.Match(update.Message.Text, @"(\d+(?:[.,]\d+)?)\s*(?:бел\.?\s*руб(?:л[яьей]+|ь)?|бр|byn)\b", RegexOptions.IgnoreCase);
-            var cadMatch = Regex.Match(update.Message.Text, @"(?:c\$)\s*(\d+(?:[.,]\d+)?)|(\d+(?:[.,]\d+)?)\s*(?:c\$|cad|канадск[аиоыхьйе]*\s*доллар[аов]*)\b", RegexOptions.IgnoreCase);
+            var namedMatch = NamedCurrencyRegex.Match(update.Message.Text);
 
-            var rates = await GetExchangeRatesAsync();
-
-            if (rates != null && rates.ContainsKey("USD") && rates.ContainsKey("EUR") &&
-                rates.ContainsKey("KZT") && rates.ContainsKey("UAH") &&
-                rates.ContainsKey("BYN") && rates.ContainsKey("CAD"))
+            if (namedMatch.Success)
             {
-                if (rubMatch.Success && double.TryParse(rubMatch.Groups[1].Value.Replace(',', '.'), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double rub))
+                if (!string.IsNullOrEmpty(namedMatch.Groups[1].Value)) { amountStr = namedMatch.Groups[1].Value; sourceCurrency = "RUB"; }
+                else if (!string.IsNullOrEmpty(namedMatch.Groups[2].Value)) { amountStr = namedMatch.Groups[2].Value; sourceCurrency = "USD"; }
+                else if (!string.IsNullOrEmpty(namedMatch.Groups[3].Value)) { amountStr = namedMatch.Groups[3].Value; sourceCurrency = "USD"; }
+                else if (!string.IsNullOrEmpty(namedMatch.Groups[4].Value)) { amountStr = namedMatch.Groups[4].Value; sourceCurrency = "EUR"; }
+                else if (!string.IsNullOrEmpty(namedMatch.Groups[5].Value)) { amountStr = namedMatch.Groups[5].Value; sourceCurrency = "EUR"; }
+                else if (!string.IsNullOrEmpty(namedMatch.Groups[6].Value)) { amountStr = namedMatch.Groups[6].Value; sourceCurrency = "KZT"; }
+                else if (!string.IsNullOrEmpty(namedMatch.Groups[7].Value)) { amountStr = namedMatch.Groups[7].Value; sourceCurrency = "UAH"; }
+                else if (!string.IsNullOrEmpty(namedMatch.Groups[8].Value)) { amountStr = namedMatch.Groups[8].Value; sourceCurrency = "BYN"; }
+                else if (!string.IsNullOrEmpty(namedMatch.Groups[9].Value)) { amountStr = namedMatch.Groups[9].Value; sourceCurrency = "CAD"; }
+                else if (!string.IsNullOrEmpty(namedMatch.Groups[10].Value)) { amountStr = namedMatch.Groups[10].Value; sourceCurrency = "CAD"; }
+            }
+            else
+            {
+                var genericMatch = GenericCurrencyRegex.Match(update.Message.Text);
+                if (genericMatch.Success)
                 {
-                    originalAmount = rub;
-                    rubAmount = rub;
-                    sourceCurrency = "RUB";
-                }
-                else if (usdMatch.Success)
-                {
-                    string val = !string.IsNullOrEmpty(usdMatch.Groups[1].Value) ? usdMatch.Groups[1].Value : usdMatch.Groups[2].Value;
-                    if (double.TryParse(val.Replace(',', '.'), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double usd))
-                    {
-                        originalAmount = usd;
-                        rubAmount = usd / rates["USD"];
-                        sourceCurrency = "USD";
-                    }
-                }
-                else if (eurMatch.Success)
-                {
-                    string val = !string.IsNullOrEmpty(eurMatch.Groups[1].Value) ? eurMatch.Groups[1].Value : eurMatch.Groups[2].Value;
-                    if (double.TryParse(val.Replace(',', '.'), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double eur))
-                    {
-                        originalAmount = eur;
-                        rubAmount = eur / rates["EUR"];
-                        sourceCurrency = "EUR";
-                    }
-                }
-                else if (kztMatch.Success)
-                {
-                    if (double.TryParse(kztMatch.Groups[1].Value.Replace(',', '.'), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double kzt))
-                    {
-                        originalAmount = kzt;
-                        rubAmount = kzt / rates["KZT"];
-                        sourceCurrency = "KZT";
-                    }
-                }
-                else if (uahMatch.Success)
-                {
-                    if (double.TryParse(uahMatch.Groups[1].Value.Replace(',', '.'), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double uah))
-                    {
-                        originalAmount = uah;
-                        rubAmount = uah / rates["UAH"];
-                        sourceCurrency = "UAH";
-                    }
-                }
-                else if (bynMatch.Success)
-                {
-                    if (double.TryParse(bynMatch.Groups[1].Value.Replace(',', '.'), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double byn))
-                    {
-                        originalAmount = byn;
-                        rubAmount = byn / rates["BYN"];
-                        sourceCurrency = "BYN";
-                    }
-                }
-                else if (cadMatch.Success)
-                {
-                    string val = !string.IsNullOrEmpty(cadMatch.Groups[1].Value) ? cadMatch.Groups[1].Value : cadMatch.Groups[2].Value;
-                    if (double.TryParse(val.Replace(',', '.'), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double cad))
-                    {
-                        originalAmount = cad;
-                        rubAmount = cad / rates["CAD"];
-                        sourceCurrency = "CAD";
-                    }
-                }
-
-                if (!string.IsNullOrEmpty(sourceCurrency))
-                {
-                    double resRub = rubAmount;
-                    double resUsd = rubAmount * rates["USD"];
-                    double resEur = rubAmount * rates["EUR"];
-                    double resKzt = rubAmount * rates["KZT"];
-                    double resUah = rubAmount * rates["UAH"];
-                    double resByn = rubAmount * rates["BYN"];
-                    double resCad = rubAmount * rates["CAD"];
-
-                    string headerInfo = sourceCurrency switch
-                    {
-                        "USD" => "🇺🇸 $",
-                        "EUR" => "🇪🇺 €",
-                        "KZT" => "🇰🇿 ₸",
-                        "UAH" => "🇺🇦 ₴",
-                        "BYN" => "🇧🇾 Б",
-                        "CAD" => "🇨🇦 C$",
-                        _ => "🇷🇺 RUB"
-                    };
-
-                    string responseText = $"*{originalAmount:N2} {headerInfo}:*\n\n" +
-                                          (sourceCurrency != "RUB" ? $"🇷🇺 *RUB:* {resRub:N2} ₽\n" : "") +
-                                          (sourceCurrency != "USD" ? $"🇺🇸 *USD:* {resUsd:N2} $\n" : "") +
-                                          (sourceCurrency != "EUR" ? $"🇪🇺 *EUR:* {resEur:N2} €\n" : "") +
-                                          (sourceCurrency != "KZT" ? $"🇰🇿 *KZT:* {resKzt:N2} ₸\n" : "") +
-                                          (sourceCurrency != "UAH" ? $"🇺🇦 *UAH:* {resUah:N2} ₴\n" : "") +
-                                          (sourceCurrency != "BYN" ? $"🇧🇾 *BYN:* {resByn:N2} Б\n" : "") +
-                                          (sourceCurrency != "CAD" ? $"🇨🇦 *CAD:* {resCad:N2} C$" : "");
-
-                    await bot.SendMessage(
-                        chatId: update.Message.Chat.Id,
-                        text: responseText.TrimEnd(),
-                        parseMode: ParseMode.Markdown,
-                        replyParameters: new ReplyParameters { MessageId = update.Message.Id },
-                        cancellationToken: ct
-                    );
-                    return;
+                    amountStr = genericMatch.Groups[1].Value;
+                    sourceCurrency = genericMatch.Groups[2].Value.ToUpper();
                 }
             }
+
+            if (string.IsNullOrEmpty(sourceCurrency)) return;
+
+            if (!double.TryParse(amountStr.Replace(',', '.'), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double originalAmount))
+                return;
+
+            var rates = await GetExchangeRatesAsync();
+            if (rates == null) return;
+
+            if (sourceCurrency != "RUB" && !rates.ContainsKey(sourceCurrency)) return;
+
+            double rubAmount = sourceCurrency == "RUB" ? originalAmount : (originalAmount / rates[sourceCurrency]);
+
+            var popularCurrencies = new List<string> { "RUB", "USD", "EUR", "KZT", "UAH", "BYN", "CAD" };
+
+            if (!popularCurrencies.Contains(sourceCurrency))
+            {
+                popularCurrencies.Insert(0, sourceCurrency);
+            }
+
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine($"*{originalAmount:N2} {GetCurrencyTargetInfo(sourceCurrency)}:*");
+            sb.AppendLine();
+
+            foreach (var currency in popularCurrencies)
+            {
+                if (currency == sourceCurrency) continue;
+
+                double targetAmount;
+                if (currency == "RUB")
+                {
+                    targetAmount = rubAmount;
+                }
+                else
+                {
+                    if (!rates.TryGetValue(currency, out double rate)) continue;
+                    targetAmount = rubAmount * rate;
+                }
+
+                sb.AppendLine($"{GetCurrencyTargetInfo(currency)} *{currency}:* {targetAmount:N2}");
+            }
+
+            await bot.SendMessage(
+                chatId: update.Message.Chat.Id,
+                text: sb.ToString().TrimEnd(),
+                parseMode: ParseMode.Markdown,
+                replyParameters: new ReplyParameters { MessageId = update.Message.Id },
+                cancellationToken: ct
+            );
+        }
+
+        private string GetCurrencyTargetInfo(string code)
+        {
+            return code switch
+            {
+                "USD" => "🇺🇸 $",
+                "EUR" => "🇪🇺 €",
+                "RUB" => "🇷🇺 ₽",
+                "KZT" => "🇰🇿 ₸",
+                "UAH" => "🇺🇦 ₴",
+                "BYN" => "🇧🇾 Б",
+                "CAD" => "🇨🇦 C$",
+                _ => $"💰 {code}"
+            };
         }
 
         async Task<Dictionary<string, double>?> GetExchangeRatesAsync()
@@ -161,12 +144,11 @@ namespace AnikiChatBot.Modules
                     var conversionRates = root.GetProperty("conversion_rates");
 
                     cachedRates.Clear();
-                    cachedRates["USD"] = conversionRates.GetProperty("USD").GetDouble();
-                    cachedRates["EUR"] = conversionRates.GetProperty("EUR").GetDouble();
-                    cachedRates["KZT"] = conversionRates.GetProperty("KZT").GetDouble();
-                    cachedRates["UAH"] = conversionRates.GetProperty("UAH").GetDouble();
-                    cachedRates["BYN"] = conversionRates.GetProperty("BYN").GetDouble();
-                    cachedRates["CAD"] = conversionRates.GetProperty("CAD").GetDouble();
+
+                    foreach (var property in conversionRates.EnumerateObject())
+                    {
+                        cachedRates[property.Name] = property.Value.GetDouble();
+                    }
 
                     lastRatesUpdate = DateTime.UtcNow;
                     return cachedRates;
