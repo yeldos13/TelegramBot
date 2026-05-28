@@ -1,10 +1,10 @@
-﻿using Telegram.Bot;
+﻿using AnikiChatBot.Modules;
+using Microsoft.Extensions.Configuration;
+using Telegram.Bot;
 using Telegram.Bot.Exceptions;
 using Telegram.Bot.Polling;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
-using Microsoft.Extensions.Configuration;
-using AnikiChatBot.Modules;
 
 var config = new ConfigurationBuilder()
     .SetBasePath(Directory.GetCurrentDirectory())
