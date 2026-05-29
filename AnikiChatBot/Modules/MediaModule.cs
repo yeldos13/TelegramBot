@@ -41,23 +41,45 @@ namespace AnikiChatBot.Modules
                 var options = new OptionSet
                 {
                     Format = "bestvideo[height<=720]+bestaudio/best[height<=720]/best",
-                    MergeOutputFormat = YoutubeDLSharp.Options.DownloadMergeFormat.Mp4,
-                    Output = tempFilePath
+                    MergeOutputFormat = DownloadMergeFormat.Mp4,
+                    Output = tempFilePath,
+                    MaxFilesize = "100M"
                 };
 
                 var result = await _ytdl.RunVideoDownload(mediaUrl, overrideOptions: options, ct: ct);
 
                 if (!result.Success)
+                {
+                    if (result.ErrorOutput.Any(line => line.Contains("File is larger than max-file-size")))
+                    {
+                        await bot.SendMessage(update.Message.Chat.Id, "Видео слишком весит больше 100 МБ. Я не могу его отправить.", replyParameters: update.Message.MessageId, cancellationToken: ct);
+                        return;
+                    }
                     throw new Exception(string.Join(Environment.NewLine, result.ErrorOutput));
+                }
 
                 string actualFilePath = tempFilePath;
+
                 if (!File.Exists(actualFilePath))
                 {
-                    var matchingFiles = Directory.GetFiles(Path.GetTempPath(), $"{Guid.NewGuid()}_video.*");
+                    string baseName = Path.GetFileNameWithoutExtension(tempFileName);
+                    var matchingFiles = Directory.GetFiles(Path.GetTempPath(), $"{baseName}.*");
                     if (matchingFiles.Length > 0)
                         actualFilePath = matchingFiles[0];
                     else
                         return;
+                }
+
+                FileInfo fileInfo = new FileInfo(actualFilePath);
+                long maxSizeBytes = 100 * 1024 * 1024;
+
+                if (fileInfo.Length > maxSizeBytes)
+                {
+                    await bot.SendMessage(update.Message.Chat.Id, "Финальный файл превысил 100 МБ. Отмена отправки.", replyParameters: update.Message.MessageId, cancellationToken: ct);
+
+                    if (File.Exists(actualFilePath))
+                        File.Delete(actualFilePath);
+                    return;
                 }
 
                 using (var videoStream = new FileStream(actualFilePath, FileMode.Open, FileAccess.Read))
