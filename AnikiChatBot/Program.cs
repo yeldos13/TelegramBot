@@ -54,7 +54,8 @@ async Task HandleUpdateAsync(ITelegramBotClient bot, Update update, Cancellation
     if (update.Message is null || !allowedChatIds.Contains(update.Message.Chat.Id))
         return;
 
-    Console.WriteLine($"[{update.Message.Date}] {update.Message.From?.Username}: {update.Message.Text}");
+    if(!string.IsNullOrEmpty(update.Message.Text))
+        Console.WriteLine($"[{update.Message.Date}] {update.Message.From?.Username}: {update.Message.Text}");
 
     var currencyModule = new CurrencyModule
     {
@@ -66,10 +67,7 @@ async Task HandleUpdateAsync(ITelegramBotClient bot, Update update, Cancellation
 
     await currencyModule.HandleCurrencyCommand(bot, update, ct);
 
-    var mediaModule = new MediaModule
-    {
-    };
-
+    var mediaModule = new MediaModule();
     await mediaModule.HandleMediaCommand(bot, update, ct);
 
     var repeaterModule = new RepeaterModule
