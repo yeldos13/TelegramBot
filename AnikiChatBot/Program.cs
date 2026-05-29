@@ -14,8 +14,13 @@ var config = new ConfigurationBuilder()
 var token = config["BotToken"]
     ?? throw new Exception("Cant find BotToken in appsettings.json");
 
-var allowedChatId = long.Parse(config["AllowedChatId"]
-    ?? throw new Exception("Cant find AllowedChatId in appsettings.json"));
+var rawChatIds = config["AllowedChatIds"]
+    ?? throw new Exception("Cant find AllowedChatIds in appsettings.json");
+
+HashSet<long> allowedChatIds = rawChatIds
+    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+    .Select(long.Parse)
+    .ToHashSet();
 
 var exchangeApiKey = config["ExchangeApiKey"]
     ?? throw new Exception("Cant find ExchangeApiKey in appsettings.json");
@@ -40,13 +45,13 @@ botClient.StartReceiving(
 );
 
 var me = await botClient.GetMe();
-Console.WriteLine($"Bot @{me.Username} started. Allowed chat: {allowedChatId}");
+Console.WriteLine($"Bot @{me.Username} started. Allowed chats count: {allowedChatIds.Count}");
 Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
 await Task.Delay(Timeout.Infinite, cts.Token).ContinueWith(_ => { });
 
 async Task HandleUpdateAsync(ITelegramBotClient bot, Update update, CancellationToken ct)
 {
-    if (update.Message is null || update.Message.Chat.Id != allowedChatId)
+    if (update.Message is null || !allowedChatIds.Contains(update.Message.Chat.Id))
         return;
 
     Console.WriteLine($"[{update.Message.Date}] {update.Message.From?.Username}: {update.Message.Text}");
