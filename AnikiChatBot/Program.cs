@@ -1,5 +1,6 @@
 ﻿using AnikiChatBot.Modules;
 using Microsoft.Extensions.Configuration;
+using System.Text.Json;
 using Telegram.Bot;
 using Telegram.Bot.Exceptions;
 using Telegram.Bot.Polling;
@@ -31,6 +32,31 @@ using var httpClient = new HttpClient();
 
 DateTime lastRatesUpdate = DateTime.MinValue;
 Dictionary<string, double> cachedRates = new();
+string cacheFilePath = "rates_cache.json";
+
+if (File.Exists(cacheFilePath))
+{
+    try
+    {
+        string cacheJson = File.ReadAllText(cacheFilePath);
+        using JsonDocument doc = JsonDocument.Parse(cacheJson);
+
+        if (doc.RootElement.TryGetProperty("lastRatesUpdate", out var dateProp))
+            lastRatesUpdate = dateProp.GetDateTime();
+
+        if (doc.RootElement.TryGetProperty("rates", out var ratesProp))
+        {
+            foreach (var prop in ratesProp.EnumerateObject())
+            {
+                cachedRates[prop.Name] = prop.Value.GetDouble();
+            }
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"[Cache] Не удалось прочитать файл кэша при старте: {ex.Message}");
+    }
+}
 
 var receiverOptions = new ReceiverOptions
 {
@@ -46,6 +72,7 @@ botClient.StartReceiving(
 
 var me = await botClient.GetMe();
 Console.WriteLine($"Bot @{me.Username} started. Allowed chats count: {allowedChatIds.Count}");
+
 Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
 await Task.Delay(Timeout.Infinite, cts.Token).ContinueWith(_ => { });
 
@@ -54,7 +81,7 @@ async Task HandleUpdateAsync(ITelegramBotClient bot, Update update, Cancellation
     if (update.Message is null || !allowedChatIds.Contains(update.Message.Chat.Id))
         return;
 
-    if(!string.IsNullOrEmpty(update.Message.Text))
+    if (!string.IsNullOrEmpty(update.Message.Text))
         Console.WriteLine($"[{update.Message.Date}] {update.Message.From?.Username}: {update.Message.Text}");
 
     var currencyModule = new CurrencyModule
@@ -66,6 +93,9 @@ async Task HandleUpdateAsync(ITelegramBotClient bot, Update update, Cancellation
     };
 
     await currencyModule.HandleCurrencyCommand(bot, update, ct);
+
+    lastRatesUpdate = currencyModule.lastRatesUpdate;
+    cachedRates = currencyModule.cachedRates;
 
     var mediaModule = new MediaModule();
     await mediaModule.HandleMediaCommand(bot, update, ct);

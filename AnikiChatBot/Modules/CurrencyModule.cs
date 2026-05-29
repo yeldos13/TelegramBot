@@ -1,5 +1,12 @@
-﻿using System.Text.Json;
+﻿using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
@@ -9,9 +16,9 @@ namespace AnikiChatBot.Modules
     public class CurrencyModule
     {
         public DateTime lastRatesUpdate;
-        public string exchangeApiKey;
+        public string exchangeApiKey = string.Empty;
         public Dictionary<string, double> cachedRates = new Dictionary<string, double>();
-        public HttpClient httpClient;
+        public HttpClient httpClient = new HttpClient();
 
         private static readonly Regex NamedCurrencyRegex = new Regex(
             @"(?:(\d+(?:[.,]\d+)?)\s*(?:рубл[яьей]+|руб|р|₽)\b)|" +
@@ -78,7 +85,7 @@ namespace AnikiChatBot.Modules
                 popularCurrencies.Insert(0, sourceCurrency);
             }
 
-            var sb = new System.Text.StringBuilder();
+            var sb = new StringBuilder();
             sb.AppendLine($"*{originalAmount:N2} {GetCurrencyTargetInfo(sourceCurrency)}:*");
             sb.AppendLine();
 
@@ -100,13 +107,28 @@ namespace AnikiChatBot.Modules
                 sb.AppendLine($"{GetCurrencyTargetInfo(currency)} *{currency}:* {targetAmount:N2}");
             }
 
-            await bot.SendMessage(
+            Message sentMessage = await bot.SendMessage(
                 chatId: update.Message.Chat.Id,
                 text: sb.ToString().TrimEnd(),
                 parseMode: ParseMode.Markdown,
                 replyParameters: new ReplyParameters { MessageId = update.Message.Id },
                 cancellationToken: ct
             );
+
+            _ = DeleteMessageAfterDelayAsync(bot, sentMessage.Chat.Id, sentMessage.MessageId, TimeSpan.FromSeconds(30));
+        }
+
+        private async Task DeleteMessageAfterDelayAsync(ITelegramBotClient bot, long chatId, int messageId, TimeSpan delay)
+        {
+            try
+            {
+                await Task.Delay(delay);
+                await bot.DeleteMessage(chatId, messageId);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[CurrencyModule] Ошибка при автоудалении сообщения: {ex.Message}");
+            }
         }
 
         private string GetCurrencyTargetInfo(string code)
@@ -149,12 +171,28 @@ namespace AnikiChatBot.Modules
                     }
 
                     lastRatesUpdate = DateTime.UtcNow;
+
+                    try
+                    {
+                        var cacheData = new
+                        {
+                            lastRatesUpdate = lastRatesUpdate,
+                            rates = cachedRates
+                        };
+                        string serializedCache = JsonSerializer.Serialize(cacheData, new JsonSerializerOptions { WriteIndented = true });
+                        File.WriteAllText("rates_cache.json", serializedCache);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.Error.WriteLine($"[CurrencyModule] Не удалось сохранить кэш в файл: {ex.Message}");
+                    }
+
                     return cachedRates;
                 }
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"Error while getting exchange rates: {ex.Message}");
+                Console.Error.WriteLine($"Error while getting exchange rates from API: {ex.Message}");
             }
 
             if (cachedRates.Count > 0) return cachedRates;
