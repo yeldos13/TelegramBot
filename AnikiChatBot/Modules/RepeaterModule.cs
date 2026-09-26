@@ -1,7 +1,6 @@
 ﻿using System.Collections.Concurrent;
 using Telegram.Bot;
 using Telegram.Bot.Types;
-using Telegram.Bot.Types.Enums;
 
 namespace AnikiChatBot.Modules
 {
@@ -37,7 +36,6 @@ namespace AnikiChatBot.Modules
                 await bot.SendMessage(
                     chatId: update.Message.Chat.Id,
                     text: savedAnswer,
-                    parseMode: ParseMode.Markdown,
                     replyParameters: new ReplyParameters { MessageId = update.Message.Id },
                     cancellationToken: ct
                 );

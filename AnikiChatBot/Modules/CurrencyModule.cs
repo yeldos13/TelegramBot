@@ -108,8 +108,6 @@ namespace AnikiChatBot.Modules
                 replyParameters: new ReplyParameters { MessageId = update.Message.Id },
                 cancellationToken: ct
             );
-
-            _ = DeleteMessageAfterDelayAsync(bot, sentMessage.Chat.Id, sentMessage.MessageId, TimeSpan.FromSeconds(30));
         }
 
         private async Task DeleteMessageAfterDelayAsync(ITelegramBotClient bot, long chatId, int messageId, TimeSpan delay)

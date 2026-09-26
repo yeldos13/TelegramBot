@@ -30,6 +30,13 @@ var botClient = new TelegramBotClient(token);
 using var cts = new CancellationTokenSource();
 using var httpClient = new HttpClient();
 
+var mediaModule = new MediaModule(
+    ytDlpPath: config["YtDlpPath"] ?? @"C:\YTDLP\yt-dlp.exe",
+    ffmpegPath: config["FfmpegPath"] ?? @"C:\FFMPEG\bin\ffmpeg.exe",
+    cookiesFile: config["CookiesFile"]);
+
+_ = mediaModule.UpdateYtDlpAsync(cts.Token);
+
 DateTime lastRatesUpdate = DateTime.MinValue;
 Dictionary<string, double> cachedRates = new();
 string cacheFilePath = "rates_cache.json";
@@ -63,6 +70,8 @@ var receiverOptions = new ReceiverOptions
     AllowedUpdates = Array.Empty<UpdateType>()
 };
 
+await botClient.DropPendingUpdates(cts.Token);
+
 botClient.StartReceiving(
     updateHandler: HandleUpdateAsync,
     errorHandler: HandlePollingErrorAsync,
@@ -70,7 +79,7 @@ botClient.StartReceiving(
     cancellationToken: cts.Token
 );
 
-var me = await botClient.GetMe();
+var me = await botClient.GetMe(cts.Token);
 Console.WriteLine($"Bot @{me.Username} started. Allowed chats count: {allowedChatIds.Count}");
 
 Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
@@ -80,9 +89,6 @@ async Task HandleUpdateAsync(ITelegramBotClient bot, Update update, Cancellation
 {
     if (update.Message is null || !allowedChatIds.Contains(update.Message.Chat.Id))
         return;
-
-    if (!string.IsNullOrEmpty(update.Message.Text))
-        Console.WriteLine($"[{update.Message.Date}] {update.Message.From?.Username}: {update.Message.Text}");
 
     var currencyModule = new CurrencyModule
     {
@@ -97,7 +103,6 @@ async Task HandleUpdateAsync(ITelegramBotClient bot, Update update, Cancellation
     lastRatesUpdate = currencyModule.lastRatesUpdate;
     cachedRates = currencyModule.cachedRates;
 
-    var mediaModule = new MediaModule();
     await mediaModule.HandleMediaCommand(bot, update, ct);
 
     var repeaterModule = new RepeaterModule
