@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 
@@ -26,10 +25,7 @@ namespace AnikiChatBot.Modules.Media
         {
             var info = await RunAsync(["-J", "--ignore-no-formats-error", url], ct);
             if (info.ExitCode != 0 || string.IsNullOrWhiteSpace(info.StdOut))
-            {
-                Console.Error.WriteLine($"[yt-dlp] {url}: {LastLine(info.StdErr)}");
-                return [];
-            }
+                throw new InvalidOperationException($"yt-dlp: {LastLine(info.StdErr)}");
 
             string infoPath = Path.Combine(workDir, "info.json");
             await File.WriteAllTextAsync(infoPath, info.StdOut, ct);
@@ -70,6 +66,7 @@ namespace AnikiChatBot.Modules.Media
                     "-f", VideoFormat,
                     "-S", VideoSort,
                     "--merge-output-format", "mp4",
+                    "--max-filesize", "500M",
                     "--ignore-errors",
                     "--ignore-no-formats-error",
                     "-o", Path.Combine(workDir, "%(playlist_index|1)s.%(ext)s")
@@ -111,16 +108,20 @@ namespace AnikiChatBot.Modules.Media
             return pages.ToString();
         }
 
-        public async Task UpdateAsync(CancellationToken ct)
+        public async Task<string?> UpdateAsync(CancellationToken ct)
         {
             try
             {
                 var result = await RunAsync(["-U"], ct, addCommonArgs: false);
+                if (result.ExitCode != 0)
+                    return LastLine(result.StdErr + "\n" + result.StdOut);
+
                 Console.WriteLine($"[yt-dlp] {LastLine(result.StdOut)}");
+                return null;
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                Console.Error.WriteLine($"[yt-dlp] Не удалось обновить: {ex.Message}");
+                return ex.Message;
             }
         }
 
@@ -148,59 +149,23 @@ namespace AnikiChatBot.Modules.Media
             return best.GetStringOrNull("url");
         }
 
-        private async Task<(int ExitCode, string StdOut, string StdErr)> RunAsync(
+        private Task<(int ExitCode, string StdOut, string StdErr)> RunAsync(
             IEnumerable<string> args, CancellationToken ct, bool addCommonArgs = true)
         {
-            var psi = new ProcessStartInfo(_exePath)
-            {
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                StandardOutputEncoding = Encoding.UTF8,
-                StandardErrorEncoding = Encoding.UTF8
-            };
-            psi.Environment["PYTHONIOENCODING"] = "utf-8";
+            var allArgs = new List<string>();
 
             if (addCommonArgs)
             {
-                psi.ArgumentList.Add("--no-update");
-                psi.ArgumentList.Add("--no-progress");
-                psi.ArgumentList.Add("--ffmpeg-location");
-                psi.ArgumentList.Add(_ffmpegPath);
+                allArgs.AddRange(["--no-update", "--no-progress", "--ffmpeg-location", _ffmpegPath]);
 
                 if (!string.IsNullOrEmpty(_cookiesFile) && File.Exists(_cookiesFile))
-                {
-                    psi.ArgumentList.Add("--cookies");
-                    psi.ArgumentList.Add(_cookiesFile);
-                }
+                    allArgs.AddRange(["--cookies", _cookiesFile]);
             }
 
-            foreach (var arg in args)
-                psi.ArgumentList.Add(arg);
-
-            using var process = Process.Start(psi)
-                ?? throw new InvalidOperationException($"Не удалось запустить {_exePath}");
-
-            var stdOutTask = process.StandardOutput.ReadToEndAsync(ct);
-            var stdErrTask = process.StandardError.ReadToEndAsync(ct);
-
-            try
-            {
-                await process.WaitForExitAsync(ct);
-            }
-            catch (OperationCanceledException)
-            {
-                try { process.Kill(entireProcessTree: true); } catch { }
-                throw;
-            }
-
-            return (process.ExitCode, await stdOutTask, await stdErrTask);
+            allArgs.AddRange(args);
+            return ProcessRunner.RunAsync(_exePath, allArgs, ct);
         }
 
-        private static string LastLine(string text)
-        {
-            return text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).LastOrDefault() ?? "";
-        }
+        private static string LastLine(string text) => ProcessRunner.LastLine(text);
     }
 }

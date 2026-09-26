@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 
@@ -6,21 +6,27 @@ namespace AnikiChatBot.Modules
 {
     public class RepeaterModule
     {
-        ConcurrentDictionary<string, string> repliesDatabase = new ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         const string FilePath = "replies.txt";
-        public HttpClient httpClient;
+
+        readonly ConcurrentDictionary<string, string> repliesDatabase = new ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        readonly object saveLock = new object();
+
+        public RepeaterModule()
+        {
+            LoadRepliesFromFile();
+        }
+
+        public int Count => repliesDatabase.Count;
 
         public async Task HandleRepeaterCommand(ITelegramBotClient bot, Update update, CancellationToken ct)
         {
-            LoadRepliesFromFile();
-
-            if (string.IsNullOrWhiteSpace(update.Message.Text))
+            if (update.Message is not { } message || string.IsNullOrWhiteSpace(message.Text))
                 return;
 
-            if (update.Message.ReplyToMessage is { } replyToMessage && !string.IsNullOrWhiteSpace(replyToMessage.Text))
+            if (message.ReplyToMessage is { } replyToMessage && !string.IsNullOrWhiteSpace(replyToMessage.Text))
             {
-                string triggerText = replyToMessage.Text.Replace("\r", "").Replace("\n", " ").Trim();
-                string answerText = update.Message.Text.Replace("\r", "").Replace("\n", " ").Trim();
+                string triggerText = Normalize(replyToMessage.Text);
+                string answerText = Normalize(message.Text);
 
                 if (triggerText != answerText && !string.IsNullOrEmpty(triggerText) && !string.IsNullOrEmpty(answerText))
                 {
@@ -30,33 +36,38 @@ namespace AnikiChatBot.Modules
                 }
             }
 
-            string cleanedText = update.Message.Text.Trim();
-            if (repliesDatabase.TryGetValue(cleanedText, out var savedAnswer))
+            if (repliesDatabase.TryGetValue(Normalize(message.Text), out var savedAnswer))
             {
                 await bot.SendMessage(
-                    chatId: update.Message.Chat.Id,
+                    chatId: message.Chat.Id,
                     text: savedAnswer,
-                    replyParameters: new ReplyParameters { MessageId = update.Message.Id },
+                    replyParameters: new ReplyParameters { MessageId = message.Id },
                     cancellationToken: ct
                 );
             }
         }
 
+        public static string Normalize(string text)
+        {
+            return text.Replace("\r", "").Replace("\n", " ").Trim();
+        }
+
         void SaveRepliesToFile()
         {
-            try
+            lock (saveLock)
             {
-                var lines = new List<string>();
-                foreach (var kvp in repliesDatabase)
+                try
                 {
-                    lines.Add($"{kvp.Key}:::{kvp.Value}");
-                }
+                    var lines = repliesDatabase.Select(kvp => $"{kvp.Key}:::{kvp.Value}");
 
-                File.WriteAllLines(FilePath, lines);
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"Error while writing file {FilePath}: {ex.Message}");
+                    string tempPath = FilePath + ".tmp";
+                    File.WriteAllLines(tempPath, lines);
+                    File.Move(tempPath, FilePath, overwrite: true);
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"Error while writing file {FilePath}: {ex.Message}");
+                }
             }
         }
 
@@ -65,13 +76,9 @@ namespace AnikiChatBot.Modules
             try
             {
                 if (!File.Exists(FilePath))
-                {
-                    File.Create(FilePath).Dispose();
                     return;
-                }
 
-                var lines = File.ReadAllLines(FilePath);
-                foreach (var line in lines)
+                foreach (var line in File.ReadAllLines(FilePath))
                 {
                     if (string.IsNullOrWhiteSpace(line)) continue;
 

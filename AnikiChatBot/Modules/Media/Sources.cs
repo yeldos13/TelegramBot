@@ -64,7 +64,7 @@ namespace AnikiChatBot.Modules.Media
             return HttpUtility.ParseQueryString(uri.Query)["lb"];
         }
 
-        private static string ToFullSize(string url)
+        internal static string ToFullSize(string url)
         {
             if (url.StartsWith("//"))
                 url = "https:" + url;
@@ -225,21 +225,32 @@ namespace AnikiChatBot.Modules.Media
                 }
 
                 string path = Path.Combine(workDir, $"x_{index}.mp4");
-                foreach (string candidate in GetVideoCandidates(entry, url))
+                var candidates = GetVideoCandidates(entry, url).ToList();
+
+                bool downloaded = false;
+                foreach (string candidate in candidates)
                 {
                     if (await MediaHttp.DownloadAsync(candidate, path, MediaModule.MaxVideoBytes, ct))
                     {
-                        items.Add(new MediaItem
-                        {
-                            Kind = MediaKind.Video,
-                            FilePath = path,
-                            Index = index,
-                            Width = entry.GetInt("width"),
-                            Height = entry.GetInt("height"),
-                            Duration = entry.GetInt("duration")
-                        });
+                        downloaded = true;
                         break;
                     }
+                }
+
+                if (!downloaded)
+                    downloaded = await MediaHttp.DownloadAsync(candidates[^1], path, MediaModule.MaxDownloadBytes, ct);
+
+                if (downloaded)
+                {
+                    items.Add(new MediaItem
+                    {
+                        Kind = type == "gif" ? MediaKind.Animation : MediaKind.Video,
+                        FilePath = path,
+                        Index = index,
+                        Width = entry.GetInt("width"),
+                        Height = entry.GetInt("height"),
+                        Duration = entry.GetInt("duration")
+                    });
                 }
             }
 

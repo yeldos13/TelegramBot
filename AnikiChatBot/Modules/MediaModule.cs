@@ -10,19 +10,30 @@ namespace AnikiChatBot.Modules
     {
         public const long MaxVideoBytes = 50L * 1024 * 1024;
         private const long MaxPhotoBytes = 10L * 1024 * 1024;
+
+        public const long MaxDownloadBytes = 500L * 1024 * 1024;
+        private const long CompressTargetBytes = 48L * 1024 * 1024;
+
         private const int AlbumSize = 10;
         private const int MaxLinksPerMessage = 3;
 
         private static readonly Regex LinkRegex = new(@"https?://[^\s<>""']+", RegexOptions.Compiled);
 
+        private const int MaxParallel = 2;
+
+        private static readonly string TempRoot = Path.Combine(Path.GetTempPath(), "AnikiChatBot");
+
         private readonly YtDlp _ytDlp;
+        private readonly FFmpeg _ffmpeg;
         private readonly List<IMediaSource> _sources;
+        private readonly OwnerNotifier? _notifier;
+        private readonly SemaphoreSlim _slots = new(MaxParallel);
 
-        private readonly SemaphoreSlim _slots = new(2);
-
-        public MediaModule(string ytDlpPath, string ffmpegPath, string? cookiesFile)
+        public MediaModule(string ytDlpPath, string ffmpegPath, string? cookiesFile, OwnerNotifier? notifier = null)
         {
             _ytDlp = new YtDlp(ytDlpPath, ffmpegPath, cookiesFile);
+            _ffmpeg = new FFmpeg(ffmpegPath);
+            _notifier = notifier;
             _sources =
             [
                 new YouTubeSource(_ytDlp),
@@ -32,7 +43,55 @@ namespace AnikiChatBot.Modules
             ];
         }
 
-        public Task UpdateYtDlpAsync(CancellationToken ct) => _ytDlp.UpdateAsync(ct);
+        public async Task UpdateYtDlpAsync(CancellationToken ct)
+        {
+            int acquired = 0;
+            try
+            {
+                for (; acquired < MaxParallel; acquired++)
+                    await _slots.WaitAsync(ct);
+
+                string? error = await _ytDlp.UpdateAsync(ct);
+                if (error != null)
+                {
+                    Console.Error.WriteLine($"[yt-dlp] Не удалось обновить: {error}");
+                    _notifier?.Notify("ytdlp-update", $"Не удалось обновить yt-dlp: {error}");
+                }
+            }
+            finally
+            {
+                if (acquired > 0)
+                    _slots.Release(acquired);
+            }
+        }
+
+        public static void CleanupTempFiles()
+        {
+            if (!Directory.Exists(TempRoot))
+                return;
+
+            int deleted = 0;
+            foreach (var dir in Directory.GetDirectories(TempRoot))
+            {
+                try
+                {
+                    if (Directory.GetLastWriteTimeUtc(dir) < DateTime.UtcNow.AddHours(-1))
+                    {
+                        Directory.Delete(dir, recursive: true);
+                        deleted++;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"[Media] Не удалось удалить {dir}: {ex.Message}");
+                }
+            }
+
+            if (deleted > 0)
+                Console.WriteLine($"[Media] Удалено временных папок после прошлого запуска: {deleted}");
+        }
+
+        public IMediaSource? FindSource(Uri uri) => _sources.FirstOrDefault(s => s.CanHandle(uri));
 
         public Task HandleMediaCommand(ITelegramBotClient bot, Update update, CancellationToken ct)
         {
@@ -40,17 +99,9 @@ namespace AnikiChatBot.Modules
             if (message?.Text is not { } text)
                 return Task.CompletedTask;
 
-            var links = LinkRegex.Matches(text)
-                .Select(m => m.Value.TrimEnd('.', ',', '!', '?', ')', ']'))
-                .Distinct()
-                .Take(MaxLinksPerMessage);
-
-            foreach (string link in links)
+            foreach (var uri in ExtractLinks(text))
             {
-                if (!Uri.TryCreate(link, UriKind.Absolute, out var uri))
-                    continue;
-
-                var source = _sources.FirstOrDefault(s => s.CanHandle(uri));
+                var source = FindSource(uri);
                 if (source == null)
                     continue;
 
@@ -60,9 +111,19 @@ namespace AnikiChatBot.Modules
             return Task.CompletedTask;
         }
 
+        public static IEnumerable<Uri> ExtractLinks(string text)
+        {
+            return LinkRegex.Matches(text)
+                .Select(m => m.Value.TrimEnd('.', ',', '!', '?', ')', ']'))
+                .Distinct()
+                .Take(MaxLinksPerMessage)
+                .Select(link => Uri.TryCreate(link, UriKind.Absolute, out var uri) ? uri : null)
+                .OfType<Uri>();
+        }
+
         private async Task ProcessLinkAsync(ITelegramBotClient bot, Message message, Uri uri, IMediaSource source, CancellationToken ct)
         {
-            string workDir = Path.Combine(Path.GetTempPath(), "AnikiChatBot", Guid.NewGuid().ToString("N"));
+            string workDir = Path.Combine(TempRoot, Guid.NewGuid().ToString("N"));
 
             try
             {
@@ -78,7 +139,7 @@ namespace AnikiChatBot.Modules
                 Directory.CreateDirectory(workDir);
 
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                timeout.CancelAfter(TimeSpan.FromMinutes(5));
+                timeout.CancelAfter(TimeSpan.FromMinutes(10));
 
                 await bot.SendChatAction(message.Chat.Id, ChatAction.UploadVideo, cancellationToken: timeout.Token);
 
@@ -96,7 +157,7 @@ namespace AnikiChatBot.Modules
                 {
                     if (hasOversized)
                     {
-                        await bot.SendMessage(message.Chat.Id, "Видео больше 50 МБ — Telegram не даёт боту его отправить.",
+                        await bot.SendMessage(message.Chat.Id, "Видео слишком длинное — даже сжатым оно не влезает в лимит Telegram 50 МБ.",
                             replyParameters: message.MessageId, cancellationToken: timeout.Token);
                     }
                     return;
@@ -107,10 +168,12 @@ namespace AnikiChatBot.Modules
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
             {
                 Console.Error.WriteLine($"[Media] {uri}: превышено время обработки");
+                _notifier?.Notify($"media-timeout:{source.GetType().Name}", $"Скачивание не уложилось в 10 минут: {uri}");
             }
             catch (Exception ex)
             {
                 Console.Error.WriteLine($"[Media] {uri}: {ex.Message}");
+                _notifier?.Notify($"media:{source.GetType().Name}", $"Не удалось скачать {uri}\n{ex.Message}");
             }
             finally
             {
@@ -119,7 +182,7 @@ namespace AnikiChatBot.Modules
             }
         }
 
-        private static async Task<bool> PrepareFilesAsync(List<MediaItem> items, string workDir, CancellationToken ct)
+        private async Task<bool> PrepareFilesAsync(List<MediaItem> items, string workDir, CancellationToken ct)
         {
             bool hasOversized = false;
 
@@ -130,11 +193,10 @@ namespace AnikiChatBot.Modules
                 if (item.FilePath == null && item.Url != null)
                 {
                     string path = Path.Combine(workDir, $"photo_{i}.jpg");
-                    long limit = item.Kind == MediaKind.Photo ? MaxPhotoBytes : MaxVideoBytes;
 
                     try
                     {
-                        if (await MediaHttp.DownloadAsync(item.Url, path, limit, ct))
+                        if (await MediaHttp.DownloadAsync(item.Url, path, MaxPhotoBytes, ct))
                             item.FilePath = path;
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException)
@@ -144,8 +206,18 @@ namespace AnikiChatBot.Modules
                 }
                 else if (item.FilePath != null && new FileInfo(item.FilePath).Length > MaxVideoBytes)
                 {
-                    item.FilePath = null;
-                    hasOversized = true;
+                    string? compressed = await _ffmpeg.CompressAsync(item.FilePath, CompressTargetBytes, ct);
+
+                    if (compressed != null)
+                    {
+                        Console.WriteLine($"[Media] Сжато: {new FileInfo(item.FilePath).Length / 1048576} МБ -> {new FileInfo(compressed).Length / 1048576} МБ");
+                        item.FilePath = compressed;
+                    }
+                    else
+                    {
+                        item.FilePath = null;
+                        hasOversized = true;
+                    }
                 }
             }
 
@@ -154,7 +226,16 @@ namespace AnikiChatBot.Modules
 
         private static async Task SendAsync(ITelegramBotClient bot, Message message, List<MediaItem> items, CancellationToken ct)
         {
-            foreach (var chunk in items.Chunk(AlbumSize))
+            foreach (var animation in items.Where(x => x.Kind == MediaKind.Animation))
+            {
+                await using var stream = File.OpenRead(animation.FilePath!);
+                await bot.SendAnimation(message.Chat.Id, InputFile.FromStream(stream, "animation.mp4"),
+                    replyParameters: message.MessageId,
+                    duration: animation.Duration, width: animation.Width, height: animation.Height,
+                    cancellationToken: ct);
+            }
+
+            foreach (var chunk in items.Where(x => x.Kind != MediaKind.Animation).Chunk(AlbumSize))
             {
                 var streams = new List<Stream>();
 

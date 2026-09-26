@@ -1,4 +1,5 @@
-﻿using System.Text;
+using System.Globalization;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Telegram.Bot;
@@ -9,61 +10,49 @@ namespace AnikiChatBot.Modules
 {
     public class CurrencyModule
     {
-        public DateTime lastRatesUpdate;
-        public string exchangeApiKey = string.Empty;
-        public Dictionary<string, double> cachedRates = new Dictionary<string, double>();
-        public HttpClient httpClient = new HttpClient();
+        private const string CacheFilePath = "rates_cache.json";
+        private static readonly TimeSpan CacheLifetime = TimeSpan.FromHours(6);
 
         private static readonly Regex NamedCurrencyRegex = new Regex(
-            @"(?:(\d+(?:[.,]\d+)?)\s*(?:рубл[яьей]+|руб|р|₽)\b)|" +
-            @"(?:(?:\$|доллар[аов]*|бакс[аов]*)\s*(\d+(?:[.,]\d+)?)|(\d+(?:[.,]\d+)?)\s*(?:\$|доллар[аов]*|бакс[аов]*)\b)|" +
-            @"(?:(?:€|евро)\s*(\d+(?:[.,]\d+)?)|(\d+(?:[.,]\d+)?)\s*(?:€|евро)\b)|" +
-            @"(?:(\d+(?:[.,]\d+)?)\s*(?:тенге|тг|kzt|₸)\b)|" +
-            @"(?:(\d+(?:[.,]\d+)?)\s*(?:грив[еньеяидлз]*|грн|uah|₴)\b)|" +
-            @"(?:(\d+(?:[.,]\d+)?)\s*(?:бел\.?\s*руб(?:л[яьей]+|ь)?|бр|byn)\b)|" +
-            @"(?:(?:c\$)\s*(\d+(?:[.,]\d+)?)|(\d+(?:[.,]\d+)?)\s*(?:c\$|cad|канадск[аиоыхьйе]*\s*доллар[аов]*)\b)",
+            @"(?:(\d+(?:[.,]\d+)?)\s*(?:рубл[яьей]+|руб|р|₽)(?!\w))|" +
+            @"(?:(?:\$|доллар[аов]*|бакс[аов]*)\s*(\d+(?:[.,]\d+)?)|(\d+(?:[.,]\d+)?)\s*(?:\$|доллар[аов]*|бакс[аов]*)(?!\w))|" +
+            @"(?:(?:€|евро)\s*(\d+(?:[.,]\d+)?)|(\d+(?:[.,]\d+)?)\s*(?:€|евро)(?!\w))|" +
+            @"(?:(\d+(?:[.,]\d+)?)\s*(?:тенге|тг|kzt|₸)(?!\w))|" +
+            @"(?:(\d+(?:[.,]\d+)?)\s*(?:грив[еньеяидлз]*|грн|uah|₴)(?!\w))|" +
+            @"(?:(\d+(?:[.,]\d+)?)\s*(?:бел\.?\s*руб(?:л[яьей]+|ь)?|бр|byn)(?!\w))|" +
+            @"(?:(?:c\$)\s*(\d+(?:[.,]\d+)?)|(\d+(?:[.,]\d+)?)\s*(?:c\$|cad|канадск[аиоыхьйе]*\s*доллар[аов]*)(?!\w))",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly string[] NamedGroupCurrencies =
+            ["", "RUB", "USD", "USD", "EUR", "EUR", "KZT", "UAH", "BYN", "CAD", "CAD"];
 
         private static readonly Regex GenericCurrencyRegex = new Regex(
             @"(?:(\d+(?:[.,]\d+)?)\s*([a-zA-Z]{3})\b)",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+        private static readonly string[] PopularCurrencies = ["RUB", "USD", "EUR", "KZT", "UAH", "BYN", "CAD"];
+
+        private readonly HttpClient _httpClient;
+        private readonly string _exchangeApiKey;
+        private readonly OwnerNotifier? _notifier;
+        private readonly SemaphoreSlim _ratesLock = new(1, 1);
+
+        private DateTime _lastRatesUpdate = DateTime.MinValue;
+        private Dictionary<string, double> _cachedRates = new();
+
+        public CurrencyModule(HttpClient httpClient, string exchangeApiKey, OwnerNotifier? notifier = null)
+        {
+            _httpClient = httpClient;
+            _exchangeApiKey = exchangeApiKey;
+            _notifier = notifier;
+            LoadCache();
+        }
+
         public async Task HandleCurrencyCommand(ITelegramBotClient bot, Update update, CancellationToken ct)
         {
-            if (string.IsNullOrEmpty(update.Message?.Text)) return;
+            if (update.Message?.Text is not { } text || string.IsNullOrEmpty(text)) return;
 
-            string amountStr = "";
-            string sourceCurrency = "";
-
-            var namedMatch = NamedCurrencyRegex.Match(update.Message.Text);
-
-            if (namedMatch.Success)
-            {
-                if (!string.IsNullOrEmpty(namedMatch.Groups[1].Value)) { amountStr = namedMatch.Groups[1].Value; sourceCurrency = "RUB"; }
-                else if (!string.IsNullOrEmpty(namedMatch.Groups[2].Value)) { amountStr = namedMatch.Groups[2].Value; sourceCurrency = "USD"; }
-                else if (!string.IsNullOrEmpty(namedMatch.Groups[3].Value)) { amountStr = namedMatch.Groups[3].Value; sourceCurrency = "USD"; }
-                else if (!string.IsNullOrEmpty(namedMatch.Groups[4].Value)) { amountStr = namedMatch.Groups[4].Value; sourceCurrency = "EUR"; }
-                else if (!string.IsNullOrEmpty(namedMatch.Groups[5].Value)) { amountStr = namedMatch.Groups[5].Value; sourceCurrency = "EUR"; }
-                else if (!string.IsNullOrEmpty(namedMatch.Groups[6].Value)) { amountStr = namedMatch.Groups[6].Value; sourceCurrency = "KZT"; }
-                else if (!string.IsNullOrEmpty(namedMatch.Groups[7].Value)) { amountStr = namedMatch.Groups[7].Value; sourceCurrency = "UAH"; }
-                else if (!string.IsNullOrEmpty(namedMatch.Groups[8].Value)) { amountStr = namedMatch.Groups[8].Value; sourceCurrency = "BYN"; }
-                else if (!string.IsNullOrEmpty(namedMatch.Groups[9].Value)) { amountStr = namedMatch.Groups[9].Value; sourceCurrency = "CAD"; }
-                else if (!string.IsNullOrEmpty(namedMatch.Groups[10].Value)) { amountStr = namedMatch.Groups[10].Value; sourceCurrency = "CAD"; }
-            }
-            else
-            {
-                var genericMatch = GenericCurrencyRegex.Match(update.Message.Text);
-                if (genericMatch.Success)
-                {
-                    amountStr = genericMatch.Groups[1].Value;
-                    sourceCurrency = genericMatch.Groups[2].Value.ToUpper();
-                }
-            }
-
-            if (string.IsNullOrEmpty(sourceCurrency)) return;
-
-            if (!double.TryParse(amountStr.Replace(',', '.'), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double originalAmount))
-                return;
+            if (!TryParseAmount(text, out double originalAmount, out string sourceCurrency)) return;
 
             var rates = await GetExchangeRatesAsync();
             if (rates == null) return;
@@ -72,18 +61,15 @@ namespace AnikiChatBot.Modules
 
             double rubAmount = sourceCurrency == "RUB" ? originalAmount : (originalAmount / rates[sourceCurrency]);
 
-            var popularCurrencies = new List<string> { "RUB", "USD", "EUR", "KZT", "UAH", "BYN", "CAD" };
-
-            if (!popularCurrencies.Contains(sourceCurrency))
-            {
-                popularCurrencies.Insert(0, sourceCurrency);
-            }
+            var currencies = PopularCurrencies.ToList();
+            if (!currencies.Contains(sourceCurrency))
+                currencies.Insert(0, sourceCurrency);
 
             var sb = new StringBuilder();
             sb.AppendLine($"*{originalAmount:N2} {GetCurrencyTargetInfo(sourceCurrency)}:*");
             sb.AppendLine();
 
-            foreach (var currency in popularCurrencies)
+            foreach (var currency in currencies)
             {
                 if (currency == sourceCurrency) continue;
 
@@ -110,6 +96,41 @@ namespace AnikiChatBot.Modules
             );
         }
 
+        public static bool TryParseAmount(string text, out double amount, out string currency)
+        {
+            amount = 0;
+            currency = "";
+            string amountStr = "";
+
+            var namedMatch = NamedCurrencyRegex.Match(text);
+            if (namedMatch.Success)
+            {
+                for (int group = 1; group < NamedGroupCurrencies.Length; group++)
+                {
+                    if (!string.IsNullOrEmpty(namedMatch.Groups[group].Value))
+                    {
+                        amountStr = namedMatch.Groups[group].Value;
+                        currency = NamedGroupCurrencies[group];
+                        break;
+                    }
+                }
+            }
+            else
+            {
+                var genericMatch = GenericCurrencyRegex.Match(text);
+                if (genericMatch.Success)
+                {
+                    amountStr = genericMatch.Groups[1].Value;
+                    currency = genericMatch.Groups[2].Value.ToUpperInvariant();
+                }
+            }
+
+            if (string.IsNullOrEmpty(currency))
+                return false;
+
+            return double.TryParse(amountStr.Replace(',', '.'), NumberStyles.Any, CultureInfo.InvariantCulture, out amount);
+        }
+
         private async Task DeleteMessageAfterDelayAsync(ITelegramBotClient bot, long chatId, int messageId, TimeSpan delay)
         {
             try
@@ -123,7 +144,7 @@ namespace AnikiChatBot.Modules
             }
         }
 
-        private string GetCurrencyTargetInfo(string code)
+        private static string GetCurrencyTargetInfo(string code)
         {
             return code switch
             {
@@ -138,58 +159,89 @@ namespace AnikiChatBot.Modules
             };
         }
 
-        async Task<Dictionary<string, double>?> GetExchangeRatesAsync()
+        private async Task<Dictionary<string, double>?> GetExchangeRatesAsync()
         {
-            if ((DateTime.UtcNow - lastRatesUpdate).TotalHours < 6 && cachedRates.Count > 0)
-                return cachedRates;
+            await _ratesLock.WaitAsync();
+            try
+            {
+                if (DateTime.UtcNow - _lastRatesUpdate < CacheLifetime && _cachedRates.Count > 0)
+                    return _cachedRates;
+
+                try
+                {
+                    string url = $"https://v6.exchangerate-api.com/v6/{_exchangeApiKey}/latest/RUB";
+                    string jsonString = await _httpClient.GetStringAsync(url);
+
+                    using JsonDocument doc = JsonDocument.Parse(jsonString);
+                    JsonElement root = doc.RootElement;
+
+                    if (root.GetProperty("result").GetString() == "success")
+                    {
+                        var rates = new Dictionary<string, double>();
+                        foreach (var property in root.GetProperty("conversion_rates").EnumerateObject())
+                            rates[property.Name] = property.Value.GetDouble();
+
+                        _cachedRates = rates;
+                        _lastRatesUpdate = DateTime.UtcNow;
+                        SaveCache();
+                    }
+                    else
+                    {
+                        string errorType = root.TryGetProperty("error-type", out var errorProp) ? errorProp.GetString() ?? "" : "";
+                        Console.Error.WriteLine($"Exchange rates API returned error: {errorType}");
+                        _notifier?.Notify("currency", $"API курсов валют вернул ошибку: {errorType}. Используется кэш от {_lastRatesUpdate:dd.MM HH:mm} UTC.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"Error while getting exchange rates from API: {ex.Message}");
+                    _notifier?.Notify("currency", $"Не удалось получить курсы валют: {ex.Message}");
+                }
+
+                return _cachedRates.Count > 0 ? _cachedRates : null;
+            }
+            finally
+            {
+                _ratesLock.Release();
+            }
+        }
+
+        private void LoadCache()
+        {
+            if (!File.Exists(CacheFilePath))
+                return;
 
             try
             {
-                string url = $"https://v6.exchangerate-api.com/v6/{exchangeApiKey}/latest/RUB";
-                string jsonString = await httpClient.GetStringAsync(url);
+                using JsonDocument doc = JsonDocument.Parse(File.ReadAllText(CacheFilePath));
 
-                using JsonDocument doc = JsonDocument.Parse(jsonString);
-                JsonElement root = doc.RootElement;
+                if (doc.RootElement.TryGetProperty("lastRatesUpdate", out var dateProp))
+                    _lastRatesUpdate = dateProp.GetDateTime();
 
-                if (root.GetProperty("result").GetString() == "success")
+                if (doc.RootElement.TryGetProperty("rates", out var ratesProp))
                 {
-                    var conversionRates = root.GetProperty("conversion_rates");
-
-                    cachedRates.Clear();
-
-                    foreach (var property in conversionRates.EnumerateObject())
-                    {
-                        cachedRates[property.Name] = property.Value.GetDouble();
-                    }
-
-                    lastRatesUpdate = DateTime.UtcNow;
-
-                    try
-                    {
-                        var cacheData = new
-                        {
-                            lastRatesUpdate = lastRatesUpdate,
-                            rates = cachedRates
-                        };
-                        string serializedCache = JsonSerializer.Serialize(cacheData, new JsonSerializerOptions { WriteIndented = true });
-                        File.WriteAllText("rates_cache.json", serializedCache);
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.Error.WriteLine($"[CurrencyModule] Не удалось сохранить кэш в файл: {ex.Message}");
-                    }
-
-                    return cachedRates;
+                    foreach (var prop in ratesProp.EnumerateObject())
+                        _cachedRates[prop.Name] = prop.Value.GetDouble();
                 }
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"Error while getting exchange rates from API: {ex.Message}");
+                Console.WriteLine($"[Cache] Не удалось прочитать файл кэша при старте: {ex.Message}");
             }
+        }
 
-            if (cachedRates.Count > 0) return cachedRates;
-
-            return null;
+        private void SaveCache()
+        {
+            try
+            {
+                var cacheData = new { lastRatesUpdate = _lastRatesUpdate, rates = _cachedRates };
+                string serializedCache = JsonSerializer.Serialize(cacheData, new JsonSerializerOptions { WriteIndented = true });
+                File.WriteAllText(CacheFilePath, serializedCache);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[CurrencyModule] Не удалось сохранить кэш в файл: {ex.Message}");
+            }
         }
     }
 }

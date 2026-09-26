@@ -1,6 +1,6 @@
 namespace AnikiChatBot.Modules.Media
 {
-    public enum MediaKind { Photo, Video }
+    public enum MediaKind { Photo, Video, Animation }
 
     public class MediaItem
     {
