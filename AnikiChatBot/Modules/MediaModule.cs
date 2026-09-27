@@ -1,4 +1,5 @@
 using AnikiChatBot.Modules.Media;
+using System.Net;
 using System.Text.RegularExpressions;
 using Telegram.Bot;
 using Telegram.Bot.Types;
@@ -105,36 +106,84 @@ namespace AnikiChatBot.Modules
 
         public IMediaSource? FindSource(Uri uri) => _sources.FirstOrDefault(s => s.CanHandle(uri));
 
+        private class Post
+        {
+            public required Message Message { get; init; }
+            public required string Author { get; init; }
+            public required string UserText { get; init; }
+            public int Remaining;
+            public int Sent;
+            public int TextUsed;
+        }
+
         public Task HandleMediaCommand(ITelegramBotClient bot, Update update, CancellationToken ct)
         {
             var message = update.Message;
             if (message?.Text is not { } text)
                 return Task.CompletedTask;
 
-            foreach (var uri in ExtractLinks(text))
-            {
-                var source = FindSource(uri);
-                if (source == null)
-                    continue;
+            var links = ExtractLinkStrings(text)
+                .Select(link => (Link: link, Uri: new Uri(link)))
+                .Select(x => (x.Link, x.Uri, Source: FindSource(x.Uri)))
+                .Where(x => x.Source != null)
+                .ToList();
 
-                _ = Task.Run(() => ProcessLinkAsync(bot, message, uri, source, ct), ct);
-            }
+            if (links.Count == 0)
+                return Task.CompletedTask;
+
+            var post = new Post
+            {
+                Message = message,
+                Author = message.From != null ? PenisModule.DisplayName(message.From) : message.SenderChat?.Title ?? "Кто-то",
+                UserText = RemoveLinks(text, links.Select(l => l.Link)),
+                Remaining = links.Count
+            };
+
+            foreach (var (_, uri, source) in links)
+                _ = Task.Run(() => ProcessLinkAsync(bot, post, uri, source!, ct), ct);
 
             return Task.CompletedTask;
         }
 
-        public static IEnumerable<Uri> ExtractLinks(string text)
+        public static IEnumerable<Uri> ExtractLinks(string text) =>
+            ExtractLinkStrings(text).Select(link => new Uri(link));
+
+        private static IEnumerable<string> ExtractLinkStrings(string text)
         {
             return LinkRegex.Matches(text)
                 .Select(m => m.Value.TrimEnd('.', ',', '!', '?', ')', ']'))
                 .Distinct()
                 .Take(MaxLinksPerMessage)
-                .Select(link => Uri.TryCreate(link, UriKind.Absolute, out var uri) ? uri : null)
-                .OfType<Uri>();
+                .Where(link => Uri.TryCreate(link, UriKind.Absolute, out _));
         }
 
-        private async Task ProcessLinkAsync(ITelegramBotClient bot, Message message, Uri uri, IMediaSource source, CancellationToken ct)
+        public static string RemoveLinks(string text, IEnumerable<string> links)
         {
+            foreach (string link in links)
+                text = text.Replace(link, " ");
+
+            return Regex.Replace(text, @"[ \t]+", " ").Replace(" \n", "\n").Replace("\n ", "\n").Trim();
+        }
+
+        public static string BuildCaption(string author, string url, string? userText)
+        {
+            string caption = $"<b>{WebUtility.HtmlEncode(author)}</b>: <a href=\"{WebUtility.HtmlEncode(url)}\">ссылка</a>";
+
+            if (!string.IsNullOrWhiteSpace(userText))
+            {
+                if (userText.Length > MaxUserTextInCaption)
+                    userText = userText[..MaxUserTextInCaption] + "…";
+                caption += "\n" + WebUtility.HtmlEncode(userText);
+            }
+
+            return caption;
+        }
+
+        private const int MaxUserTextInCaption = 900;
+
+        private async Task ProcessLinkAsync(ITelegramBotClient bot, Post post, Uri uri, IMediaSource source, CancellationToken ct)
+        {
+            var message = post.Message;
             string workDir = Path.Combine(TempRoot, Guid.NewGuid().ToString("N"));
 
             try
@@ -175,7 +224,11 @@ namespace AnikiChatBot.Modules
                     return;
                 }
 
-                await SendAsync(bot, message, ready, timeout.Token);
+                string? userText = Interlocked.Exchange(ref post.TextUsed, 1) == 0 ? post.UserText : null;
+                string caption = BuildCaption(post.Author, uri.ToString(), userText);
+
+                await SendAsync(bot, message, ready, caption, timeout.Token);
+                Interlocked.Increment(ref post.Sent);
                 Interlocked.Increment(ref _sentCount);
                 _stats?.RecordMedia(message.Chat.Id);
             }
@@ -197,6 +250,18 @@ namespace AnikiChatBot.Modules
             {
                 _slots.Release();
                 try { Directory.Delete(workDir, recursive: true); } catch { }
+
+                if (Interlocked.Decrement(ref post.Remaining) == 0 && post.Sent > 0)
+                {
+                    try
+                    {
+                        await bot.DeleteMessage(message.Chat.Id, message.MessageId, CancellationToken.None);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.Error.WriteLine($"[Media] Не удалось удалить сообщение со ссылкой (нужно право «Удаление сообщений»): {ex.Message}");
+                    }
+                }
             }
         }
 
@@ -242,13 +307,22 @@ namespace AnikiChatBot.Modules
             return hasOversized;
         }
 
-        private static async Task SendAsync(ITelegramBotClient bot, Message message, List<MediaItem> items, CancellationToken ct)
+        private static async Task SendAsync(ITelegramBotClient bot, Message message, List<MediaItem> items, string caption, CancellationToken ct)
         {
+            ReplyParameters? reply = message.ReplyToMessage is { } original
+                ? new ReplyParameters { MessageId = original.MessageId, AllowSendingWithoutReply = true }
+                : null;
+            int? threadId = message.IsTopicMessage ? message.MessageThreadId : null;
+
+            string? pendingCaption = caption;
+            string? TakeCaption() => Interlocked.Exchange(ref pendingCaption, null);
+
             foreach (var animation in items.Where(x => x.Kind == MediaKind.Animation))
             {
                 await using var stream = File.OpenRead(animation.FilePath!);
                 await bot.SendAnimation(message.Chat.Id, InputFile.FromStream(stream, "animation.mp4"),
-                    replyParameters: message.MessageId,
+                    caption: TakeCaption(), parseMode: ParseMode.Html,
+                    replyParameters: reply, messageThreadId: threadId,
                     duration: animation.Duration, width: animation.Width, height: animation.Height,
                     cancellationToken: ct);
             }
@@ -268,12 +342,14 @@ namespace AnikiChatBot.Modules
                         if (item.Kind == MediaKind.Photo)
                         {
                             await bot.SendPhoto(message.Chat.Id, InputFile.FromStream(stream, Path.GetFileName(item.FilePath)),
-                                replyParameters: message.MessageId, cancellationToken: ct);
+                                caption: TakeCaption(), parseMode: ParseMode.Html,
+                                replyParameters: reply, messageThreadId: threadId, cancellationToken: ct);
                         }
                         else
                         {
                             await bot.SendVideo(message.Chat.Id, InputFile.FromStream(stream, "video.mp4"),
-                                replyParameters: message.MessageId,
+                                caption: TakeCaption(), parseMode: ParseMode.Html,
+                                replyParameters: reply, messageThreadId: threadId,
                                 duration: item.Duration, width: item.Width, height: item.Height,
                                 supportsStreaming: true, cancellationToken: ct);
                         }
@@ -287,13 +363,24 @@ namespace AnikiChatBot.Modules
                         var stream = File.OpenRead(item.FilePath!);
                         streams.Add(stream);
 
+                        string? itemCaption = i == 0 ? TakeCaption() : null;
+
                         if (item.Kind == MediaKind.Photo)
                         {
-                            album.Add(new InputMediaPhoto(InputFile.FromStream(stream, $"photo{i}.jpg")));
+                            album.Add(new InputMediaPhoto(InputFile.FromStream(stream, $"photo{i}.jpg"))
+                            {
+                                Caption = itemCaption,
+                                ParseMode = ParseMode.Html
+                            });
                         }
                         else
                         {
-                            var video = new InputMediaVideo(InputFile.FromStream(stream, $"video{i}.mp4")) { SupportsStreaming = true };
+                            var video = new InputMediaVideo(InputFile.FromStream(stream, $"video{i}.mp4"))
+                            {
+                                SupportsStreaming = true,
+                                Caption = itemCaption,
+                                ParseMode = ParseMode.Html
+                            };
                             if (item.Duration is { } duration) video.Duration = duration;
                             if (item.Width is { } width) video.Width = width;
                             if (item.Height is { } height) video.Height = height;
@@ -301,7 +388,8 @@ namespace AnikiChatBot.Modules
                         }
                     }
 
-                    await bot.SendMediaGroup(message.Chat.Id, album, replyParameters: message.MessageId, cancellationToken: ct);
+                    await bot.SendMediaGroup(message.Chat.Id, album,
+                        replyParameters: reply, messageThreadId: threadId, cancellationToken: ct);
                 }
                 finally
                 {

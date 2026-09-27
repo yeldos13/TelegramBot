@@ -56,6 +56,36 @@ namespace AnikiChatBot.Tests
         }
 
         [Fact]
+        public void Caption_has_author_link_and_escapes_html()
+        {
+            Assert.Equal(
+                "<b>Вася</b>: <a href=\"https://x.com/a/status/1\">ссылка</a>",
+                MediaModule.BuildCaption("Вася", "https://x.com/a/status/1", null));
+
+            Assert.Equal(
+                "<b>Вася &lt;3</b>: <a href=\"https://x.com/a?b=1&amp;c=2\">ссылка</a>\nсмотри &amp; угорай",
+                MediaModule.BuildCaption("Вася <3", "https://x.com/a?b=1&c=2", "смотри & угорай"));
+        }
+
+        [Fact]
+        public void Caption_trims_long_text()
+        {
+            string caption = MediaModule.BuildCaption("Вася", "https://x.com/a", new string('а', 2000));
+            Assert.True(caption.Length < 1024);
+            Assert.EndsWith("…", caption);
+        }
+
+        [Theory]
+        [InlineData("https://x.com/a/status/1", "")]
+        [InlineData("смотри https://x.com/a/status/1 жесть", "смотри жесть")]
+        [InlineData("https://x.com/a/status/1\nвторая строка", "вторая строка")]
+        [InlineData("тут https://x.com/a/status/1 и тут https://example.com", "тут и тут https://example.com")]
+        public void Removes_only_downloaded_links_from_text(string text, string expected)
+        {
+            Assert.Equal(expected, MediaModule.RemoveLinks(text, ["https://x.com/a/status/1"]));
+        }
+
+        [Fact]
         public void Takes_at_most_three_distinct_links()
         {
             string text = "https://a.com/1 https://a.com/1 https://a.com/2 https://a.com/3 https://a.com/4";
