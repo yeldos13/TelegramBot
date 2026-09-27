@@ -16,7 +16,18 @@ namespace AnikiChatBot
             public int Conversions { get; set; }
             public int RepliesSent { get; set; }
             public List<string> LeftMembers { get; set; } = new();
+
+            public Dictionary<long, WeekPlayer> Players { get; set; } = new();
         }
+
+        public class WeekPlayer
+        {
+            public string Name { get; set; } = "";
+            public int Growth { get; set; }
+            public int DuelWins { get; set; }
+        }
+
+        public record GameLeader(string Name, int Size);
 
         public class State
         {
@@ -44,6 +55,20 @@ namespace AnikiChatBot
         public void RecordReply(long chatId) => Update(chatId, s => s.RepliesSent++);
         public void RecordLeft(long chatId, string name) => Update(chatId, s => s.LeftMembers.Add(name));
 
+        public void RecordGrowth(long chatId, long userId, string name, int change) =>
+            Update(chatId, s => GetPlayer(s, userId, name).Growth += change);
+
+        public void RecordDuelWin(long chatId, long userId, string name) =>
+            Update(chatId, s => GetPlayer(s, userId, name).DuelWins++);
+
+        private static WeekPlayer GetPlayer(ChatStats stats, long userId, string name)
+        {
+            if (!stats.Players.TryGetValue(userId, out var player))
+                stats.Players[userId] = player = new WeekPlayer();
+            player.Name = name;
+            return player;
+        }
+
         public ChatStats GetChat(long chatId)
         {
             lock (_lock)
@@ -54,7 +79,9 @@ namespace AnikiChatBot
                     MediaSent = s.MediaSent,
                     Conversions = s.Conversions,
                     RepliesSent = s.RepliesSent,
-                    LeftMembers = s.LeftMembers.ToList()
+                    LeftMembers = s.LeftMembers.ToList(),
+                    Players = s.Players.ToDictionary(p => p.Key,
+                        p => new WeekPlayer { Name = p.Value.Name, Growth = p.Value.Growth, DuelWins = p.Value.DuelWins })
                 };
             }
         }
@@ -78,7 +105,7 @@ namespace AnikiChatBot
             }
         }
 
-        public static string BuildReport(ChatStats stats, DateTime from, DateTime to, string? ownerUsername)
+        public static string BuildReport(ChatStats stats, DateTime from, DateTime to, string? ownerUsername, GameLeader? leader = null)
         {
             var sb = new StringBuilder();
             sb.AppendLine($"📊 Итоги недели ({from:dd.MM} – {to:dd.MM})");
@@ -90,6 +117,26 @@ namespace AnikiChatBot
             sb.AppendLine(stats.LeftMembers.Count == 0
                 ? "Никто не покинул чат"
                 : $"Покинули чат ({stats.LeftMembers.Count}): {string.Join(", ", stats.LeftMembers)}");
+
+            var game = new List<string>();
+            if (leader != null)
+                game.Add($"Самый большой: {leader.Name} — {leader.Size} см");
+
+            var grower = stats.Players.Values.Where(p => p.Growth > 0).MaxBy(p => p.Growth);
+            if (grower != null)
+                game.Add($"Больше всех вырос: {grower.Name} (+{grower.Growth} см)");
+
+            var duelist = stats.Players.Values.Where(p => p.DuelWins > 0).MaxBy(p => p.DuelWins);
+            if (duelist != null)
+                game.Add($"Больше всех побед в дуэлях: {duelist.Name} ({duelist.DuelWins})");
+
+            if (game.Count > 0)
+            {
+                sb.AppendLine();
+                sb.AppendLine("🍆 Игра");
+                foreach (var line in game)
+                    sb.AppendLine(line);
+            }
 
             string? tag = ownerUsername?.TrimStart('@');
             if (!string.IsNullOrEmpty(tag))

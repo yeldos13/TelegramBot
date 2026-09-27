@@ -19,6 +19,9 @@ namespace AnikiChatBot.Modules.Penis
 
         public int Streak { get; set; }
 
+        public int DuelWins { get; set; }
+        public int DuelLosses { get; set; }
+
         public List<GrowEntry> History { get; set; } = new();
     }
 

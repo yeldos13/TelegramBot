@@ -34,10 +34,13 @@ namespace AnikiChatBot.Modules
         private readonly ConcurrentDictionary<string, PendingDuel> _duels = new();
         private string _botUsername = "";
 
-        public PenisModule(PenisStore store, Random? random = null)
+        private readonly StatsService? _stats;
+
+        public PenisModule(PenisStore store, Random? random = null, StatsService? stats = null)
         {
             _store = store;
             _random = random ?? Random.Shared;
+            _stats = stats;
         }
 
         public void SetBotUsername(string? username) => _botUsername = username ?? "";
@@ -167,6 +170,7 @@ namespace AnikiChatBot.Modules
                     _ => $"😐 {name}, твой пенис не изменился."
                 };
 
+                _stats?.RecordGrowth(chatId, user.Id, name, change);
                 var earned = Award(data, user.Id, PenisAchievements.CheckAfterGrow(player, now));
                 return $"{result}\nТеперь он {player.Size} см.\nСледующая попытка — завтра." + FormatAchievements(earned);
             });
@@ -195,6 +199,7 @@ namespace AnikiChatBot.Modules
                 if (player.History.Count > 0)
                     sb.AppendLine($"Последнее изменение: {FormatDelta(player.History[^1].Delta)} см");
 
+                sb.AppendLine($"Дуэли: {player.DuelWins} побед, {player.DuelLosses} поражений");
                 sb.AppendLine($"Достижений: {achievements} из {PenisAchievements.All.Count}");
                 sb.Append(PenisGame.CanGrow(player, today)
                     ? "Сегодня ещё можно /grow"
@@ -364,19 +369,35 @@ namespace AnikiChatBot.Modules
                 return;
             }
 
-            string text = _store.Update(data =>
+            string text = PlayDuel(duel.ChatId, duel.ChallengerId, acceptor);
+
+            await bot.AnswerCallbackQuery(query.Id, cancellationToken: ct);
+            await bot.EditMessageText(message.Chat.Id, message.MessageId, text, cancellationToken: ct);
+            ScheduleDelete(bot, message.Chat.Id, AutoDeleteDelay, message.MessageId);
+        }
+
+        internal string PlayDuel(long chatId, long challengerId, User acceptor)
+        {
+            return _store.Update(data =>
             {
-                var chat = GetChat(data, duel.ChatId);
-                var a = chat.Players[duel.ChallengerId];
+                var chat = GetChat(data, chatId);
+                var a = chat.Players[challengerId];
                 var b = chat.Players[acceptor.Id];
                 b.DisplayName = DisplayName(acceptor);
 
                 var result = PenisGame.ResolveDuel(a.Size, b.Size, _random);
                 var (winner, loser) = result.ChallengerWins ? (a, b) : (b, a);
+                int winnerBefore = winner.Size, loserBefore = loser.Size;
 
                 string header = $"⚔️ Дуэль: {a.DisplayName} ({a.Size} см) vs {b.DisplayName} ({b.Size} см)";
                 winner.Size += result.Transfer;
                 loser.Size -= result.Transfer;
+                winner.DuelWins++;
+                loser.DuelLosses++;
+
+                _stats?.RecordGrowth(chatId, winner.UserId, winner.DisplayName, result.Transfer);
+                _stats?.RecordGrowth(chatId, loser.UserId, loser.DisplayName, -result.Transfer);
+                _stats?.RecordDuelWin(chatId, winner.UserId, winner.DisplayName);
 
                 string hit = result.Hit switch
                 {
@@ -389,12 +410,21 @@ namespace AnikiChatBot.Modules
                     ? $"🏆 Победил {winner.DisplayName} и отнял {result.Transfer} см.{hit}"
                     : $"🏆 Победил {winner.DisplayName}, но отнимать у соперника уже нечего.";
 
-                return $"{header}\n{outcome}\n\n{a.DisplayName}: {a.Size} см · {b.DisplayName}: {b.Size} см";
-            });
+                var earned = Award(data, winner.UserId,
+                    PenisAchievements.CheckAfterDuelWin(winner, winnerBefore, loserBefore, result.Hit));
 
-            await bot.AnswerCallbackQuery(query.Id, cancellationToken: ct);
-            await bot.EditMessageText(message.Chat.Id, message.MessageId, text, cancellationToken: ct);
-            ScheduleDelete(bot, message.Chat.Id, AutoDeleteDelay, message.MessageId);
+                return $"{header}\n{outcome}\n\n{a.DisplayName}: {a.Size} см · {b.DisplayName}: {b.Size} см"
+                    + FormatAchievements(earned);
+            });
+        }
+
+        public StatsService.GameLeader? GetLeader(long chatId)
+        {
+            return _store.Read(data =>
+            {
+                var top = data.Chats.GetValueOrDefault(chatId)?.Players.Values.MaxBy(p => p.Size);
+                return top == null ? null : new StatsService.GameLeader(top.DisplayName, top.Size);
+            });
         }
 
         private void RemoveExpiredDuels()

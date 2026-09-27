@@ -47,6 +47,11 @@ namespace AnikiChatBot.Modules.Penis
             new(TwoChats, "Засветился 👀🍆", "Пенис в 2 чатах"),
             new(FiveChats, "Посол 🎖️", "Пенис в 5 чатах"),
             new(TenChats, "Эпидемия 🦠", "Пенис в 10 чатах"),
+            new("duel_first", "Первая кровь 🩸", "Выиграть первую дуэль"),
+            new("duel_10", "Гладиатор ⚔️", "10 побед в дуэлях"),
+            new("duel_50", "Чемпион арены 🏟️", "50 побед в дуэлях"),
+            new("duel_goliath", "Давид и Голиаф 🪨", "Победить соперника, который минимум вдвое больше"),
+            new("duel_knockout", "Нокаутёр 🥊", "Победить нокаутом"),
         ];
 
         public static Achievement Get(string id) => All.First(a => a.Id == id);
@@ -113,6 +118,15 @@ namespace AnikiChatBot.Modules.Penis
             if (now.Day == 1) yield return "newhope";
             if (now.Month == 2 && now.Day == 14) yield return "valentine";
             if (now.Month == 10 && now.Day == 31) yield return "halloween";
+        }
+
+        public static IEnumerable<string> CheckAfterDuelWin(Player winner, int winnerSizeBefore, int loserSizeBefore, DuelHit hit)
+        {
+            if (winner.DuelWins >= 1) yield return "duel_first";
+            if (winner.DuelWins >= 10) yield return "duel_10";
+            if (winner.DuelWins >= 50) yield return "duel_50";
+            if (loserSizeBefore >= winnerSizeBefore * 2) yield return "duel_goliath";
+            if (hit == DuelHit.Knockout) yield return "duel_knockout";
         }
 
         public static IEnumerable<string> CheckChats(int chatCount)

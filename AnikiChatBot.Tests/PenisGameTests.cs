@@ -226,5 +226,47 @@ namespace AnikiChatBot.Tests
             Assert.Contains("Слишком длинное", module.SetName(-1, Vasya, new string('a', 65)));
             Assert.Contains("🏷️", module.SetName(-1, Vasya, new string('a', 64)));
         }
+
+        [Fact]
+        public void Duel_updates_wins_losses_stats_and_achievements()
+        {
+            string statsFile = $"stats_duel_{Guid.NewGuid():N}.json";
+            try
+            {
+                var stats = new StatsService(statsFile);
+                var module = new PenisModule(new PenisStore(_file), new Random(5), stats);
+                module.Grow(-1, Vasya);
+                module.Grow(-1, Petya);
+
+                string result = module.PlayDuel(-1, Vasya.Id, Petya);
+                Assert.Contains("⚔️ Дуэль", result);
+                Assert.Contains("Первая кровь", result);
+
+                string my1 = module.My(-1, Vasya), my2 = module.My(-1, Petya);
+                bool vasyaWon = my1.Contains("Дуэли: 1 побед");
+                Assert.True(vasyaWon ? my2.Contains("0 побед, 1 поражений") : my1.Contains("0 побед, 1 поражений"));
+
+                var week = stats.GetChat(-1);
+                Assert.Equal(1, week.Players.Values.Sum(p => p.DuelWins));
+                Assert.Equal(0, week.Players.Values.Sum(p => p.Growth));
+
+                Assert.NotNull(module.GetLeader(-1));
+                Assert.Null(module.GetLeader(-99));
+            }
+            finally
+            {
+                System.IO.File.Delete(statsFile);
+            }
+        }
+
+        [Theory]
+        [InlineData(1, 10, 20, DuelHit.Normal, new[] { "duel_first", "duel_goliath" })]
+        [InlineData(10, 30, 10, DuelHit.Knockout, new[] { "duel_first", "duel_10", "duel_knockout" })]
+        [InlineData(50, 30, 59, DuelHit.Critical, new[] { "duel_first", "duel_10", "duel_50" })]
+        public void Duel_achievements(int wins, int winnerSize, int loserSize, DuelHit hit, string[] expected)
+        {
+            var winner = new Player { DuelWins = wins };
+            Assert.Equal(expected, PenisAchievements.CheckAfterDuelWin(winner, winnerSize, loserSize, hit).ToArray());
+        }
     }
 }

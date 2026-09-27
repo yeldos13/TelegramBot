@@ -22,8 +22,9 @@ namespace AnikiChatBot
         private HashSet<long> _allowedChatIds = new();
         private OwnerNotifier _notifier = null!;
         private readonly StatsService _stats = new StatsService();
-        private readonly PenisModule _penisModule = new PenisModule(new Modules.Penis.PenisStore());
+        private readonly PenisModule _penisModule;
         private readonly HelpModule _helpModule = new HelpModule();
+        private SpamModule _spamModule = null!;
         private CurrencyModule _currencyModule = null!;
         private MediaModule _mediaModule = null!;
         private RepeaterModule _repeaterModule = null!;
@@ -32,6 +33,7 @@ namespace AnikiChatBot
         public BotWorker(IConfiguration config)
         {
             _config = config;
+            _penisModule = new PenisModule(new Modules.Penis.PenisStore(), stats: _stats);
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -80,6 +82,7 @@ namespace AnikiChatBot
             _notifier.Attach(botClient);
 
             _membersModule = new MembersModule(_config["OwnerUsername"], _stats);
+            _spamModule = new SpamModule(_config["OwnerUsername"]);
 
             MediaModule.CleanupTempFiles();
 
@@ -130,7 +133,8 @@ namespace AnikiChatBot
 
                     foreach (long chatId in _allowedChatIds)
                     {
-                        string report = StatsService.BuildReport(_stats.GetChat(chatId), periodStart, now, _config["OwnerUsername"]);
+                        string report = StatsService.BuildReport(_stats.GetChat(chatId), periodStart, now,
+                            _config["OwnerUsername"], _penisModule.GetLeader(chatId));
                         await RunModuleAsync("WeeklyReport", () => bot.SendMessage(chatId, report, cancellationToken: ct));
                     }
 
@@ -184,6 +188,11 @@ namespace AnikiChatBot
                 await RunModuleAsync("Members", () => _membersModule.HandleMembersUpdate(bot, update, ct));
                 return;
             }
+
+            bool isSpam = false;
+            await RunModuleAsync("Spam", async () => isSpam = await _spamModule.HandleMessage(bot, message, ct));
+            if (isSpam)
+                return;
 
             bool isCommand = false;
             await RunModuleAsync("Help", async () => isCommand = await _helpModule.HandleCommand(bot, message, ct));
