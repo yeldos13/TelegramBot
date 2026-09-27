@@ -23,6 +23,7 @@ namespace AnikiChatBot
         private OwnerNotifier _notifier = null!;
         private readonly StatsService _stats = new StatsService();
         private readonly PenisModule _penisModule = new PenisModule(new Modules.Penis.PenisStore());
+        private readonly HelpModule _helpModule = new HelpModule();
         private CurrencyModule _currencyModule = null!;
         private MediaModule _mediaModule = null!;
         private RepeaterModule _repeaterModule = null!;
@@ -103,8 +104,9 @@ namespace AnikiChatBot
             var me = await botClient.GetMe(ct);
             _membersModule.SetBotId(me.Id);
             _penisModule.SetBotUsername(me.Username);
+            _helpModule.SetBotUsername(me.Username);
 
-            await RunModuleAsync("Commands", () => botClient.SetMyCommands(PenisModule.Commands,
+            await RunModuleAsync("Commands", () => botClient.SetMyCommands([HelpModule.Command, .. PenisModule.Commands],
                 scope: new Telegram.Bot.Types.BotCommandScopeAllGroupChats(), cancellationToken: ct));
             Console.WriteLine($"Bot @{me.Username} started. Allowed chats count: {_allowedChatIds.Count}, replies: {_repeaterModule.Count}");
 
@@ -183,9 +185,13 @@ namespace AnikiChatBot
                 return;
             }
 
-            bool isGameCommand = false;
-            await RunModuleAsync("Penis", async () => isGameCommand = await _penisModule.HandleCommand(bot, message, ct));
-            if (isGameCommand)
+            bool isCommand = false;
+            await RunModuleAsync("Help", async () => isCommand = await _helpModule.HandleCommand(bot, message, ct));
+            if (isCommand)
+                return;
+
+            await RunModuleAsync("Penis", async () => isCommand = await _penisModule.HandleCommand(bot, message, ct));
+            if (isCommand)
                 return;
 
             await RunModuleAsync("Currency", () => _currencyModule.HandleCurrencyCommand(bot, update, ct));
