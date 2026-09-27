@@ -1,0 +1,230 @@
+using AnikiChatBot.Modules;
+using AnikiChatBot.Modules.Penis;
+using Telegram.Bot.Types;
+
+namespace AnikiChatBot.Tests
+{
+    public class PenisGameTests : IDisposable
+    {
+        private readonly string _file = $"penis_test_{Guid.NewGuid():N}.json";
+        private static readonly User Vasya = new User { Id = 1, FirstName = "Вася" };
+        private static readonly User Petya = new User { Id = 2, FirstName = "Петя", LastName = "Иванов" };
+        private static readonly DateOnly Day = new DateOnly(2026, 9, 21);
+
+        public void Dispose() => System.IO.File.Delete(_file);
+
+        private static Player PlayerWith(params int[] deltas)
+        {
+            var player = new Player { UserId = 1, Size = 50 };
+            for (int i = 0; i < deltas.Length; i++)
+                PenisGame.ApplyGrow(player, Day.AddDays(i), deltas[i]);
+            return player;
+        }
+
+        private static List<string> Check(Player player, DateTime? now = null) =>
+            PenisAchievements.CheckAfterGrow(player, now ?? new DateTime(2026, 9, 21, 15, 0, 0)).ToList();
+
+        [Fact]
+        public void Deltas_stay_within_range_and_all_outcomes_happen()
+        {
+            var random = new Random(1);
+            var deltas = Enumerable.Range(0, 5000).Select(_ => PenisGame.RollDelta(random)).ToList();
+
+            Assert.All(deltas, d => Assert.InRange(d, -20, 20));
+            Assert.Contains(20, deltas);
+            Assert.Contains(-20, deltas);
+            Assert.Contains(0, deltas);
+            Assert.True(deltas.Average() > 0, "В среднем пенис должен расти");
+        }
+
+        [Fact]
+        public void Size_never_drops_below_one()
+        {
+            var player = new Player { Size = 5 };
+            PenisGame.ApplyGrow(player, Day, -20);
+
+            Assert.Equal(1, player.Size);
+            Assert.Equal(-20, player.History[^1].Delta);
+        }
+
+        [Fact]
+        public void Streak_counts_consecutive_days_and_resets_after_gap()
+        {
+            var player = new Player { Size = 10 };
+            PenisGame.ApplyGrow(player, Day, 1);
+            PenisGame.ApplyGrow(player, Day.AddDays(1), 1);
+            Assert.Equal(2, player.Streak);
+
+            PenisGame.ApplyGrow(player, Day.AddDays(3), 1);
+            Assert.Equal(1, player.Streak);
+        }
+
+        [Fact]
+        public void Grow_is_allowed_once_per_day()
+        {
+            var player = new Player { Size = 10 };
+            Assert.True(PenisGame.CanGrow(player, Day));
+            PenisGame.ApplyGrow(player, Day, 3);
+            Assert.False(PenisGame.CanGrow(player, Day));
+            Assert.True(PenisGame.CanGrow(player, Day.AddDays(1)));
+        }
+
+        [Fact]
+        public void Duel_transfer_is_within_limits_and_loser_keeps_at_least_one_cm()
+        {
+            var random = new Random(7);
+            for (int i = 0; i < 2000; i++)
+            {
+                var result = PenisGame.ResolveDuel(40, 10, random);
+                int loser = result.ChallengerWins ? 10 : 40;
+
+                Assert.InRange(result.Transfer, 0, loser - 1);
+                Assert.True(result.Transfer <= loser / 2 || loser <= 2);
+            }
+
+            Assert.Equal(0, PenisGame.ResolveDuel(100, 1, new Random(1)) is { ChallengerWins: true } r ? r.Transfer : 0);
+        }
+
+        [Fact]
+        public void Bigger_penis_wins_more_often_but_not_always()
+        {
+            var random = new Random(3);
+            int wins = Enumerable.Range(0, 5000).Count(_ => PenisGame.ResolveDuel(90, 10, random).ChallengerWins);
+
+            Assert.InRange(wins, 3000, 4000);
+        }
+
+        [Theory]
+        [InlineData(19, "kamasutra")]
+        [InlineData(-32, "eighteen")]
+        [InlineData(20, "monster")]
+        [InlineData(-1, "oops")]
+        public void Size_and_delta_achievements(int delta, string expected)
+        {
+            Assert.Contains(expected, Check(PlayerWith(delta)));
+        }
+
+        [Fact]
+        public void Pattern_achievements()
+        {
+            Assert.Contains("groundhog", Check(PlayerWith(-1, -2, -3)));
+            Assert.Contains("nohelp", Check(PlayerWith(0, 0, 0)));
+            Assert.Contains("schrodinger", Check(PlayerWith(5, -3, 0)));
+            Assert.Contains("pendulum", Check(PlayerWith(20, -20)));
+            Assert.Contains("lucky", Check(PlayerWith(1, 2, 3, 4, 5)));
+            Assert.Contains("gymrat", Check(PlayerWith(20, 20, 20, 20, 20)));
+            Assert.Contains("fridays", Check(PlayerWith(1, 1, 1, 1, 1, 1, 1)));
+            Assert.Contains("streak7", Check(PlayerWith(0, 1, -1, 0, 1, -1, 0)));
+            Assert.Contains("rollercoaster", Check(PlayerWith(1, -1, 0)));
+
+            Assert.DoesNotContain("groundhog", Check(PlayerWith(-1, 1, -3)));
+            Assert.DoesNotContain("fridays", Check(PlayerWith(1, 1, 1, -1, 1, 1, 1)));
+        }
+
+        [Fact]
+        public void Infinity_war_needs_minus_twenty_to_one_cm()
+        {
+            var player = new Player { Size = 15 };
+            PenisGame.ApplyGrow(player, Day, -20);
+
+            Assert.Contains("infinity", Check(player));
+        }
+
+        [Fact]
+        public void Date_achievements()
+        {
+            var player = PlayerWith(1);
+            Assert.Contains("midnight", Check(player, new DateTime(2026, 9, 21, 0, 0, 30)));
+            Assert.Contains("agent007", Check(player, new DateTime(2026, 7, 7, 7, 15, 0)));
+            Assert.Contains("newhope", Check(player, new DateTime(2026, 10, 1, 12, 0, 0)));
+            Assert.Contains("valentine", Check(player, new DateTime(2027, 2, 14, 12, 0, 0)));
+            Assert.Contains("halloween", Check(player, new DateTime(2026, 10, 31, 12, 0, 0)));
+            Assert.DoesNotContain("midnight", Check(player, new DateTime(2026, 9, 21, 0, 1, 0)));
+        }
+
+        [Fact]
+        public void Last_year_achievement_needs_dec_31_and_jan_1()
+        {
+            var player = new Player { Size = 10 };
+            PenisGame.ApplyGrow(player, new DateOnly(2026, 12, 31), 1);
+            PenisGame.ApplyGrow(player, new DateOnly(2027, 1, 1), 1);
+
+            Assert.Contains("lastyear", Check(player, new DateTime(2027, 1, 1, 12, 0, 0)));
+        }
+
+        [Fact]
+        public void All_achievement_ids_are_unique_and_known()
+        {
+            var ids = PenisAchievements.All.Select(a => a.Id).ToList();
+            Assert.Equal(ids.Count, ids.Distinct().Count());
+
+            var player = PlayerWith(20, -20, 0, 20, 20, 20, 20);
+            Assert.All(Check(player, new DateTime(2026, 7, 7, 7, 0, 0)), id => Assert.Contains(id, ids));
+        }
+
+        [Theory]
+        [InlineData("/grow", "AnikiChatBot", "grow", "")]
+        [InlineData("/GROW@AnikiChatBot", "AnikiChatBot", "grow", "")]
+        [InlineData("/name Большой Бро", "AnikiChatBot", "name", "Большой Бро")]
+        [InlineData("/name@anikichatbot  Бро ", "AnikiChatBot", "name", "Бро")]
+        public void Parses_commands(string text, string bot, string command, string args)
+        {
+            var parsed = PenisModule.ParseCommand(text, bot);
+            Assert.NotNull(parsed);
+            Assert.Equal(command, parsed.Command);
+            Assert.Equal(args, parsed.Args);
+        }
+
+        [Theory]
+        [InlineData("/grow@OtherBot")]
+        [InlineData("grow")]
+        [InlineData("")]
+        [InlineData(null)]
+        public void Ignores_non_commands_and_commands_for_other_bots(string? text)
+        {
+            Assert.Null(PenisModule.ParseCommand(text, "AnikiChatBot"));
+        }
+
+        [Fact]
+        public void Full_game_flow_and_persistence()
+        {
+            var module = new PenisModule(new PenisStore(_file), new Random(42));
+
+            Assert.Contains("нет пениса", module.My(-1, Vasya));
+            Assert.Contains("никто не растил", module.Top(-1));
+
+            string first = module.Grow(-1, Vasya);
+            Assert.Contains("у тебя появился пенис", first);
+            Assert.Contains("уже рос сегодня", module.Grow(-1, Vasya));
+
+            module.Grow(-1, Petya);
+            Assert.Contains("🏷️", module.SetName(-1, Vasya, "Малыш"));
+            Assert.Contains("Окрестили", module.Achievements(Vasya).Split('\n').First(l => l.Contains("Окрестили")));
+            Assert.StartsWith("✅", module.Achievements(Vasya).Split('\n').First(l => l.Contains("Окрестили")));
+
+            string top = module.Top(-1);
+            Assert.Contains("Вася «Малыш»", top);
+            Assert.Contains("Петя Иванов", top);
+
+            string day = module.PenisOfDay(-1);
+            Assert.Contains("Пенис дня сегодня", day);
+            Assert.Contains("уже выбран", module.PenisOfDay(-1));
+
+            Assert.Contains("Засветился", module.Grow(-2, Vasya));
+
+            var restarted = new PenisModule(new PenisStore(_file));
+            Assert.Contains("Малыш", restarted.My(-1, Vasya));
+            Assert.Contains("уже рос сегодня", restarted.Grow(-1, Vasya));
+        }
+
+        [Fact]
+        public void Name_is_limited_to_64_characters()
+        {
+            var module = new PenisModule(new PenisStore(_file));
+            module.Grow(-1, Vasya);
+
+            Assert.Contains("Слишком длинное", module.SetName(-1, Vasya, new string('a', 65)));
+            Assert.Contains("🏷️", module.SetName(-1, Vasya, new string('a', 64)));
+        }
+    }
+}

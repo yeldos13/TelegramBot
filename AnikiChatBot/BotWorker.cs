@@ -22,6 +22,7 @@ namespace AnikiChatBot
         private HashSet<long> _allowedChatIds = new();
         private OwnerNotifier _notifier = null!;
         private readonly StatsService _stats = new StatsService();
+        private readonly PenisModule _penisModule = new PenisModule(new Modules.Penis.PenisStore());
         private CurrencyModule _currencyModule = null!;
         private MediaModule _mediaModule = null!;
         private RepeaterModule _repeaterModule = null!;
@@ -95,12 +96,16 @@ namespace AnikiChatBot
             botClient.StartReceiving(
                 updateHandler: HandleUpdateAsync,
                 errorHandler: HandlePollingErrorAsync,
-                receiverOptions: new ReceiverOptions { AllowedUpdates = [UpdateType.Message, UpdateType.ChatMember] },
+                receiverOptions: new ReceiverOptions { AllowedUpdates = [UpdateType.Message, UpdateType.ChatMember, UpdateType.CallbackQuery] },
                 cancellationToken: ct
             );
 
             var me = await botClient.GetMe(ct);
             _membersModule.SetBotId(me.Id);
+            _penisModule.SetBotUsername(me.Username);
+
+            await RunModuleAsync("Commands", () => botClient.SetMyCommands(PenisModule.Commands,
+                scope: new Telegram.Bot.Types.BotCommandScopeAllGroupChats(), cancellationToken: ct));
             Console.WriteLine($"Bot @{me.Username} started. Allowed chats count: {_allowedChatIds.Count}, replies: {_repeaterModule.Count}");
 
             if (!_notifier.HasOwner)
@@ -153,6 +158,13 @@ namespace AnikiChatBot
                 return;
             }
 
+            if (update.CallbackQuery is { Message: { } callbackMessage } query)
+            {
+                if (_allowedChatIds.Contains(callbackMessage.Chat.Id))
+                    await RunModuleAsync("Penis", () => _penisModule.HandleCallback(bot, query, ct));
+                return;
+            }
+
             if (update.Message is not { } message)
                 return;
 
@@ -170,6 +182,11 @@ namespace AnikiChatBot
                 await RunModuleAsync("Members", () => _membersModule.HandleMembersUpdate(bot, update, ct));
                 return;
             }
+
+            bool isGameCommand = false;
+            await RunModuleAsync("Penis", async () => isGameCommand = await _penisModule.HandleCommand(bot, message, ct));
+            if (isGameCommand)
+                return;
 
             await RunModuleAsync("Currency", () => _currencyModule.HandleCurrencyCommand(bot, update, ct));
             await RunModuleAsync("Media", () => _mediaModule.HandleMediaCommand(bot, update, ct));
