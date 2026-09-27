@@ -13,6 +13,9 @@ namespace AnikiChatBot.Modules
         private const int MaxNameLength = 64;
         private static readonly TimeSpan DuelLifetime = TimeSpan.FromMinutes(10);
 
+        private static readonly TimeSpan AutoDeleteDelay = TimeSpan.FromSeconds(15);
+        private static readonly HashSet<string> KeptCommands = ["top", "penisday"];
+
         public static readonly BotCommand[] Commands =
         [
             new BotCommand { Command = "grow", Description = "Вырастить пенис (раз в день)" },
@@ -44,6 +47,12 @@ namespace AnikiChatBot.Modules
             if (message.From is not { } user || ParseCommand(message.Text, _botUsername) is not { } parsed)
                 return false;
 
+            if (parsed.Command == "duel")
+            {
+                await StartDuelAsync(bot, message, user, ct);
+                return true;
+            }
+
             string? reply = parsed.Command switch
             {
                 "grow" => Grow(message.Chat.Id, user),
@@ -52,21 +61,34 @@ namespace AnikiChatBot.Modules
                 "name" => SetName(message.Chat.Id, user, parsed.Args),
                 "achievements" => Achievements(user),
                 "penisday" => PenisOfDay(message.Chat.Id),
-                "duel" => null,
-                _ => ""
+                _ => null
             };
 
-            if (reply == "")
+            if (reply == null)
                 return false;
 
-            if (parsed.Command == "duel")
-            {
-                await StartDuelAsync(bot, message, user, ct);
-                return true;
-            }
+            var sent = await bot.SendMessage(message.Chat.Id, reply, replyParameters: message.MessageId, cancellationToken: ct);
 
-            await bot.SendMessage(message.Chat.Id, reply!, replyParameters: message.MessageId, cancellationToken: ct);
+            if (!KeptCommands.Contains(parsed.Command))
+                ScheduleDelete(bot, message.Chat.Id, AutoDeleteDelay, message.MessageId, sent.MessageId);
+
             return true;
+        }
+
+        private static void ScheduleDelete(ITelegramBotClient bot, long chatId, TimeSpan delay, params int[] messageIds)
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(delay);
+                    await bot.DeleteMessages(chatId, messageIds);
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"[Penis] Не удалось удалить сообщения: {ex.Message}");
+                }
+            });
         }
 
         public record ParsedCommand(string Command, string Args);
@@ -286,7 +308,8 @@ namespace AnikiChatBot.Modules
 
             if (error != null)
             {
-                await bot.SendMessage(chatId, error, replyParameters: message.MessageId, cancellationToken: ct);
+                var errorMessage = await bot.SendMessage(chatId, error, replyParameters: message.MessageId, cancellationToken: ct);
+                ScheduleDelete(bot, chatId, AutoDeleteDelay, message.MessageId, errorMessage.MessageId);
                 return;
             }
 
@@ -294,12 +317,20 @@ namespace AnikiChatBot.Modules
             _duels[duel.Id] = duel;
 
             string whom = target != null ? DisplayName(target) : "любого желающего";
-            await bot.SendMessage(chatId,
+            var challenge = await bot.SendMessage(chatId,
                 $"⚔️ {DisplayName(user)} ({challenger!.Size} см) вызывает на дуэль {whom}!\n" +
                 $"Вызов действует {DuelLifetime.TotalMinutes:0} минут.",
                 replyParameters: message.MessageId,
                 replyMarkup: new InlineKeyboardMarkup(InlineKeyboardButton.WithCallbackData("⚔️ Принять", $"duel:{duel.Id}")),
                 cancellationToken: ct);
+
+            ScheduleDelete(bot, chatId, AutoDeleteDelay, message.MessageId);
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(DuelLifetime);
+                if (_duels.TryRemove(duel.Id, out _))
+                    ScheduleDelete(bot, chatId, TimeSpan.Zero, challenge.MessageId);
+            });
         }
 
         public async Task HandleCallback(ITelegramBotClient bot, CallbackQuery query, CancellationToken ct)
@@ -315,6 +346,7 @@ namespace AnikiChatBot.Modules
                 _duels.TryRemove(id, out _);
                 await bot.AnswerCallbackQuery(query.Id, "Вызов устарел", cancellationToken: ct);
                 await bot.EditMessageText(message.Chat.Id, message.MessageId, message.Text + "\n\n⌛ Вызов устарел.", cancellationToken: ct);
+                ScheduleDelete(bot, message.Chat.Id, AutoDeleteDelay, message.MessageId);
                 return;
             }
 
@@ -362,6 +394,7 @@ namespace AnikiChatBot.Modules
 
             await bot.AnswerCallbackQuery(query.Id, cancellationToken: ct);
             await bot.EditMessageText(message.Chat.Id, message.MessageId, text, cancellationToken: ct);
+            ScheduleDelete(bot, message.Chat.Id, AutoDeleteDelay, message.MessageId);
         }
 
         private void RemoveExpiredDuels()
