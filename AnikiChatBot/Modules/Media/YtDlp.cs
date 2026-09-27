@@ -5,8 +5,9 @@ namespace AnikiChatBot.Modules.Media
 {
     public class YtDlp
     {
-        private const string VideoFormat = "bv*+ba/b";
-        private const string VideoSort = "vcodec:h264,res:720,acodec:aac,size:48M";
+        private const string VideoFormat = "bv*+ba[format_note*=original]/bv*+ba/b";
+
+        private const string VideoSort = "lang,vcodec:h264,res:720,acodec:aac,size:48M";
 
         public const int MaxItems = 30;
 
