@@ -169,7 +169,7 @@ namespace AnikiChatBot.Tests
         [InlineData("/name@anikichatbot  Бро ", "AnikiChatBot", "name", "Бро")]
         public void Parses_commands(string text, string bot, string command, string args)
         {
-            var parsed = PenisModule.ParseCommand(text, bot);
+            var parsed = BotCommands.Parse(text, bot);
             Assert.NotNull(parsed);
             Assert.Equal(command, parsed.Command);
             Assert.Equal(args, parsed.Args);
@@ -182,13 +182,14 @@ namespace AnikiChatBot.Tests
         [InlineData(null)]
         public void Ignores_non_commands_and_commands_for_other_bots(string? text)
         {
-            Assert.Null(PenisModule.ParseCommand(text, "AnikiChatBot"));
+            Assert.Null(BotCommands.Parse(text, "AnikiChatBot"));
         }
 
         [Fact]
         public void Full_game_flow_and_persistence()
         {
-            var module = new PenisModule(new PenisStore(_file), new Random(42));
+            var store = new PenisStore(_file);
+            var module = new PenisModule(store, new Random(42));
 
             Assert.Contains("нет пениса", module.My(-1, Vasya));
             Assert.Contains("никто не растил", module.Top(-1));
@@ -212,6 +213,8 @@ namespace AnikiChatBot.Tests
 
             Assert.Contains("Засветился", module.Grow(-2, Vasya));
 
+            Assert.False(System.IO.File.Exists(_file));
+            store.Flush();
             var restarted = new PenisModule(new PenisStore(_file));
             Assert.Contains("Малыш", restarted.My(-1, Vasya));
             Assert.Contains("уже рос сегодня", restarted.Grow(-1, Vasya));

@@ -48,7 +48,7 @@ namespace AnikiChatBot.Modules
 
         public async Task<bool> HandleCommand(ITelegramBotClient bot, Message message, CancellationToken ct)
         {
-            if (message.From is not { } user || ParseCommand(message.Text, _botUsername) is not { } parsed)
+            if (message.From is not { } user || BotCommands.Parse(message.Text, _botUsername) is not { } parsed)
                 return false;
 
             if (parsed.Command == "duel")
@@ -96,33 +96,7 @@ namespace AnikiChatBot.Modules
             });
         }
 
-        public record ParsedCommand(string Command, string Args);
-
-        public static ParsedCommand? ParseCommand(string? text, string botUsername)
-        {
-            if (string.IsNullOrWhiteSpace(text) || text[0] != '/')
-                return null;
-
-            int space = text.IndexOfAny([' ', '\n']);
-            string head = space < 0 ? text[1..] : text[1..space];
-            string args = space < 0 ? "" : text[(space + 1)..].Trim();
-
-            int at = head.IndexOf('@');
-            if (at >= 0)
-            {
-                if (!string.Equals(head[(at + 1)..], botUsername, StringComparison.OrdinalIgnoreCase))
-                    return null;
-                head = head[..at];
-            }
-
-            return new ParsedCommand(head.ToLowerInvariant(), args);
-        }
-
-        public static string DisplayName(User user)
-        {
-            string name = string.Join(" ", new[] { user.FirstName, user.LastName }.Where(s => !string.IsNullOrWhiteSpace(s)));
-            return string.IsNullOrWhiteSpace(name) ? user.Username ?? "Аноним" : name;
-        }
+        private static string DisplayName(User user) => Users.DisplayName(user);
 
         internal string Grow(long chatId, User user)
         {

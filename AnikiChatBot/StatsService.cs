@@ -40,27 +40,17 @@ namespace AnikiChatBot
 
         private readonly object _lock = new object();
         private readonly string _filePath;
-        private readonly Timer _saveTimer;
+        private readonly PeriodicSaver _saver;
         private State _state;
-        private bool _dirty;
 
         public StatsService(string filePath = FilePath)
         {
             _filePath = filePath;
-            _state = Load() ?? new State { PeriodStart = DateTime.Now };
-            _saveTimer = new Timer(_ => Flush(), null, SaveInterval, SaveInterval);
+            _state = JsonFile.Load<State>(filePath, "Stats") ?? new State { PeriodStart = DateTime.Now };
+            _saver = new PeriodicSaver(() => JsonFile.Save(_filePath, _state, "Stats"), _lock, SaveInterval);
         }
 
-        public void Flush()
-        {
-            lock (_lock)
-            {
-                if (!_dirty)
-                    return;
-                Save();
-                _dirty = false;
-            }
-        }
+        public void Flush() => _saver.Flush();
 
         public DateTime PeriodStart
         {
@@ -81,11 +71,18 @@ namespace AnikiChatBot
         public void RecordMessage(long chatId, long userId, string name) =>
             Update(chatId, s => GetPlayer(s, userId, name).Messages++);
 
-        public List<string> GetActiveNames(long chatId)
+        public void RemoveMessages(long chatId, long userId, int count) =>
+            Update(chatId, s =>
+            {
+                if (s.Players.TryGetValue(userId, out var player))
+                    player.Messages = Math.Max(0, player.Messages - count);
+            });
+
+        public List<(long UserId, string Name)> GetActivePlayers(long chatId)
         {
             lock (_lock)
-                return _state.Chats.GetValueOrDefault(chatId)?.Players.Values
-                    .Where(p => p.Messages > 0).Select(p => p.Name).ToList() ?? [];
+                return _state.Chats.GetValueOrDefault(chatId)?.Players
+                    .Where(p => p.Value.Messages > 0).Select(p => (p.Key, p.Value.Name)).ToList() ?? [];
         }
 
         private static WeekPlayer GetPlayer(ChatStats stats, long userId, string name)
@@ -128,8 +125,7 @@ namespace AnikiChatBot
             lock (_lock)
             {
                 _state = new State { PeriodStart = now };
-                Save();
-                _dirty = false;
+                _saver.SaveNow();
             }
         }
 
@@ -194,36 +190,7 @@ namespace AnikiChatBot
                     _state.Chats[chatId] = stats = new ChatStats();
 
                 change(stats);
-                _dirty = true;
-            }
-        }
-
-        private State? Load()
-        {
-            try
-            {
-                return File.Exists(_filePath)
-                    ? JsonSerializer.Deserialize<State>(File.ReadAllText(_filePath))
-                    : null;
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"[Stats] Не удалось прочитать {_filePath}: {ex.Message}");
-                return null;
-            }
-        }
-
-        private void Save()
-        {
-            try
-            {
-                string tempPath = _filePath + ".tmp";
-                File.WriteAllText(tempPath, JsonSerializer.Serialize(_state, new JsonSerializerOptions { WriteIndented = true }));
-                File.Move(tempPath, _filePath, overwrite: true);
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"[Stats] Не удалось сохранить {_filePath}: {ex.Message}");
+                _saver.MarkDirty();
             }
         }
     }

@@ -43,7 +43,7 @@ namespace AnikiChatBot.Modules
 
         public async Task<bool> HandleCommand(ITelegramBotClient bot, Message message, CancellationToken ct)
         {
-            if (PenisModule.ParseCommand(message.Text, _botUsername)?.Command != "help")
+            if (BotCommands.Parse(message.Text, _botUsername)?.Command != "help")
                 return false;
 
             await bot.SendMessage(message.Chat.Id, Text, replyParameters: message.MessageId, cancellationToken: ct);

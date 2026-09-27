@@ -72,7 +72,7 @@ namespace AnikiChatBot.Modules
                 || !IsNewcomer(message.Chat.Id, user.Id, DateTime.UtcNow))
                 return false;
 
-            string name = PenisModule.DisplayName(user) + (user.Username != null ? $" (@{user.Username})" : "");
+            string name = Users.NameWithUsername(user);
             string chatTitle = message.Chat.Title ?? message.Chat.Id.ToString();
 
             await _notifier.ForwardToOwnerAsync(message.Chat.Id, message.MessageId,
@@ -100,31 +100,9 @@ namespace AnikiChatBot.Modules
                     users.Remove(old.Key);
         }
 
-        private Dictionary<long, Dictionary<long, DateTime>>? Load()
-        {
-            try
-            {
-                return File.Exists(_filePath)
-                    ? JsonSerializer.Deserialize<Dictionary<long, Dictionary<long, DateTime>>>(File.ReadAllText(_filePath))
-                    : null;
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"[Newcomer] Не удалось прочитать {_filePath}: {ex.Message}");
-                return null;
-            }
-        }
+        private Dictionary<long, Dictionary<long, DateTime>>? Load() =>
+            JsonFile.Load<Dictionary<long, Dictionary<long, DateTime>>>(_filePath, "Newcomer");
 
-        private void Save()
-        {
-            try
-            {
-                File.WriteAllText(_filePath, JsonSerializer.Serialize(_joined));
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"[Newcomer] Не удалось сохранить {_filePath}: {ex.Message}");
-            }
-        }
+        private void Save() => JsonFile.Save(_filePath, _joined, "Newcomer");
     }
 }

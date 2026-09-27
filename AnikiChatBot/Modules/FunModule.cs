@@ -13,20 +13,22 @@ namespace AnikiChatBot.Modules
         ];
 
         private readonly StatsService _stats;
+        private readonly MuteStore? _mutes;
         private readonly Random _random;
         private string _botUsername = "";
 
-        public FunModule(StatsService stats, Random? random = null)
+        public FunModule(StatsService stats, Random? random = null, MuteStore? mutes = null)
         {
             _stats = stats;
             _random = random ?? Random.Shared;
+            _mutes = mutes;
         }
 
         public void SetBotUsername(string? username) => _botUsername = username ?? "";
 
         public async Task<bool> HandleCommand(ITelegramBotClient bot, Message message, CancellationToken ct)
         {
-            if (PenisModule.ParseCommand(message.Text, _botUsername) is not { } parsed)
+            if (BotCommands.Parse(message.Text, _botUsername) is not { } parsed)
                 return false;
 
             string? reply = parsed.Command switch
@@ -54,7 +56,8 @@ namespace AnikiChatBot.Modules
 
         internal string Who(long chatId, string question)
         {
-            var names = _stats.GetActiveNames(chatId);
+            var muted = _mutes?.List(chatId).Select(m => m.UserId).ToHashSet() ?? [];
+            var names = _stats.GetActivePlayers(chatId).Where(p => !muted.Contains(p.UserId)).Select(p => p.Name).ToList();
             if (names.Count == 0)
                 return "Не из кого выбирать — на этой неделе в чате ещё никто не писал.";
 

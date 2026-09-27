@@ -18,16 +18,23 @@ namespace AnikiChatBot.Modules
 
         private record Entry(string Key, int MessageId, DateTime At);
 
+        private const int CleanupEvery = 500;
+
         private readonly ConcurrentDictionary<(long ChatId, long UserId), List<Entry>> _recent = new();
         private readonly string? _ownerUsername;
         private readonly MuteStore _mutes;
+        private readonly StatsService? _stats;
         private string _botUsername = "";
+        private int _registered;
 
-        public SpamModule(string? ownerUsername, MuteStore? mutes = null)
+        public SpamModule(string? ownerUsername, MuteStore? mutes = null, StatsService? stats = null)
         {
             _ownerUsername = ownerUsername?.TrimStart('@');
             _mutes = mutes ?? new MuteStore();
+            _stats = stats;
         }
+
+        internal int TrackedUsers => _recent.Count;
 
         public void SetBotUsername(string? username) => _botUsername = username ?? "";
 
@@ -41,8 +48,10 @@ namespace AnikiChatBot.Modules
             if (Register(message.Chat.Id, user.Id, key, message.MessageId, DateTime.UtcNow) is not { } hit)
                 return false;
 
-            string name = PenisModule.DisplayName(user) + (user.Username != null ? $" (@{user.Username})" : "");
+            string name = Users.NameWithUsername(user);
             Console.WriteLine($"[Spam] {hit.Kind}: {name} в чате {message.Chat.Id}, сообщений: {hit.MessageIds.Count}");
+
+            _stats?.RemoveMessages(message.Chat.Id, user.Id, hit.MessageIds.Count - 1);
 
             try
             {
@@ -63,7 +72,7 @@ namespace AnikiChatBot.Modules
                 {
                     UserId = user.Id,
                     Username = user.Username,
-                    Name = PenisModule.DisplayName(user),
+                    Name = Users.DisplayName(user),
                     At = DateTime.Now,
                     Reason = hit.Kind == HitKind.Spam ? "спам" : "флуд"
                 });
@@ -80,7 +89,7 @@ namespace AnikiChatBot.Modules
 
         public async Task<bool> HandleModerationCommand(ITelegramBotClient bot, Message message, CancellationToken ct)
         {
-            if (PenisModule.ParseCommand(message.Text, _botUsername) is not { Command: "unmute" or "mutelist" } command)
+            if (BotCommands.Parse(message.Text, _botUsername) is not { Command: "unmute" or "mutelist" } command)
                 return false;
 
             if (string.IsNullOrEmpty(_ownerUsername)
@@ -124,7 +133,7 @@ namespace AnikiChatBot.Modules
             if (message.ReplyToMessage?.From is { IsBot: false } replied)
             {
                 userId = replied.Id;
-                name = PenisModule.DisplayName(replied);
+                name = Users.DisplayName(replied);
             }
             else if (args.StartsWith('@') && _mutes.FindByUsername(chatId, args) is { } found)
             {
@@ -169,6 +178,9 @@ namespace AnikiChatBot.Modules
 
         public Hit? Register(long chatId, long userId, string key, int messageId, DateTime now)
         {
+            if (Interlocked.Increment(ref _registered) % CleanupEvery == 0)
+                RemoveIdleUsers(now);
+
             var entries = _recent.GetOrAdd((chatId, userId), _ => new List<Entry>());
 
             lock (entries)
@@ -191,6 +203,18 @@ namespace AnikiChatBot.Modules
                 }
 
                 return null;
+            }
+        }
+
+        internal void RemoveIdleUsers(DateTime now)
+        {
+            foreach (var (key, entries) in _recent)
+            {
+                lock (entries)
+                {
+                    if (entries.All(e => now - e.At > Window))
+                        _recent.TryRemove(key, out _);
+                }
             }
         }
 

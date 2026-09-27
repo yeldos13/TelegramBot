@@ -135,7 +135,7 @@ namespace AnikiChatBot.Modules
             var post = new Post
             {
                 Message = message,
-                Author = message.From != null ? PenisModule.DisplayName(message.From) : message.SenderChat?.Title ?? "Кто-то",
+                Author = message.From != null ? Users.DisplayName(message.From) : message.SenderChat?.Title ?? "Кто-то",
                 AuthorId = message.SenderChat == null ? message.From?.Id : null,
                 UserText = RemoveLinks(text, links.Select(l => l.Link)),
                 Remaining = links.Count

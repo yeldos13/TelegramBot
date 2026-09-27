@@ -8,6 +8,7 @@ namespace AnikiChatBot.Modules.Penis
     {
         public const int MinSize = 1;
         public const int MaxDelta = 20;
+        public const int MaxHistory = 30;
 
         public static int RollInitialSize(Random random) => random.Next(1, 21);
 
@@ -31,6 +32,10 @@ namespace AnikiChatBot.Modules.Penis
 
             var entry = new GrowEntry { Date = today, Delta = delta, SizeAfter = player.Size };
             player.History.Add(entry);
+
+            if (player.History.Count > MaxHistory)
+                player.History.RemoveRange(0, player.History.Count - MaxHistory);
+
             return entry;
         }
 

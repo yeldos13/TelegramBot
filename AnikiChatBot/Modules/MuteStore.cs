@@ -59,31 +59,9 @@ namespace AnikiChatBot.Modules
                 return _chats.GetValueOrDefault(chatId)?.ToList() ?? [];
         }
 
-        private Dictionary<long, List<MutedUser>>? Load()
-        {
-            try
-            {
-                return File.Exists(_filePath)
-                    ? JsonSerializer.Deserialize<Dictionary<long, List<MutedUser>>>(File.ReadAllText(_filePath))
-                    : null;
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"[Mute] Не удалось прочитать {_filePath}: {ex.Message}");
-                return null;
-            }
-        }
+        private Dictionary<long, List<MutedUser>>? Load() =>
+            JsonFile.Load<Dictionary<long, List<MutedUser>>>(_filePath, "Mute");
 
-        private void Save()
-        {
-            try
-            {
-                File.WriteAllText(_filePath, JsonSerializer.Serialize(_chats, new JsonSerializerOptions { WriteIndented = true }));
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"[Mute] Не удалось сохранить {_filePath}: {ex.Message}");
-            }
-        }
+        private void Save() => JsonFile.Save(_filePath, _chats, "Mute");
     }
 }

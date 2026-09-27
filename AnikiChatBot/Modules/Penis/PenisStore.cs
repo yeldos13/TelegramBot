@@ -41,16 +41,19 @@ namespace AnikiChatBot.Modules.Penis
 
     public class PenisStore
     {
-        private const int MaxHistory = 30;
+        private static readonly TimeSpan SaveInterval = TimeSpan.FromSeconds(30);
+        private static readonly JsonSerializerOptions Compact = new();
 
         private readonly string _filePath;
         private readonly object _lock = new object();
         private readonly GameData _data;
+        private readonly PeriodicSaver _saver;
 
         public PenisStore(string filePath = "penis.json")
         {
             _filePath = filePath;
-            _data = Load() ?? new GameData();
+            _data = JsonFile.Load<GameData>(filePath, "Penis") ?? new GameData();
+            _saver = new PeriodicSaver(() => JsonFile.Save(_filePath, _data, "Penis", Compact), _lock, SaveInterval);
         }
 
         public T Read<T>(Func<GameData, T> read)
@@ -64,44 +67,11 @@ namespace AnikiChatBot.Modules.Penis
             lock (_lock)
             {
                 var result = change(_data);
-                foreach (var chat in _data.Chats.Values)
-                    foreach (var player in chat.Players.Values)
-                        if (player.History.Count > MaxHistory)
-                            player.History.RemoveRange(0, player.History.Count - MaxHistory);
-                Save();
+                _saver.MarkDirty();
                 return result;
             }
         }
 
-        private GameData? Load()
-        {
-            try
-            {
-                return File.Exists(_filePath)
-                    ? JsonSerializer.Deserialize<GameData>(File.ReadAllText(_filePath))
-                    : null;
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"[Penis] Не удалось прочитать {_filePath}: {ex.Message}");
-
-                try { File.Copy(_filePath, _filePath + ".broken", overwrite: true); } catch { }
-                return null;
-            }
-        }
-
-        private void Save()
-        {
-            try
-            {
-                string tempPath = _filePath + ".tmp";
-                File.WriteAllText(tempPath, JsonSerializer.Serialize(_data));
-                File.Move(tempPath, _filePath, overwrite: true);
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"[Penis] Не удалось сохранить {_filePath}: {ex.Message}");
-            }
-        }
+        public void Flush() => _saver.Flush();
     }
 }

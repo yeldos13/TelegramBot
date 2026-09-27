@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Telegram.Bot;
 using Telegram.Bot.Types;
@@ -12,6 +13,7 @@ namespace AnikiChatBot.Modules
     {
         private const string CacheFilePath = "rates_cache.json";
         private static readonly TimeSpan CacheLifetime = TimeSpan.FromHours(6);
+        private static readonly TimeSpan ApiTimeout = TimeSpan.FromSeconds(10);
 
         private const string Multiplier = @"кк|kk|к|k|тыс\.?|тысяч[аи]?|млн|миллион(?:а|ов)?|млрд";
 
@@ -249,8 +251,9 @@ namespace AnikiChatBot.Modules
 
                 try
                 {
+                    using var timeout = new CancellationTokenSource(ApiTimeout);
                     string url = $"https://v6.exchangerate-api.com/v6/{_exchangeApiKey}/latest/RUB";
-                    string jsonString = await _httpClient.GetStringAsync(url);
+                    string jsonString = await _httpClient.GetStringAsync(url, timeout.Token);
 
                     using JsonDocument doc = JsonDocument.Parse(jsonString);
                     JsonElement root = doc.RootElement;
@@ -286,42 +289,22 @@ namespace AnikiChatBot.Modules
             }
         }
 
+        private class RatesCache
+        {
+            [JsonPropertyName("lastRatesUpdate")] public DateTime LastRatesUpdate { get; set; }
+            [JsonPropertyName("rates")] public Dictionary<string, double> Rates { get; set; } = new();
+        }
+
         private void LoadCache()
         {
-            if (!File.Exists(CacheFilePath))
-                return;
-
-            try
+            if (JsonFile.Load<RatesCache>(CacheFilePath, "Currency") is { } cache)
             {
-                using JsonDocument doc = JsonDocument.Parse(File.ReadAllText(CacheFilePath));
-
-                if (doc.RootElement.TryGetProperty("lastRatesUpdate", out var dateProp))
-                    _lastRatesUpdate = dateProp.GetDateTime();
-
-                if (doc.RootElement.TryGetProperty("rates", out var ratesProp))
-                {
-                    foreach (var prop in ratesProp.EnumerateObject())
-                        _cachedRates[prop.Name] = prop.Value.GetDouble();
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[Cache] Не удалось прочитать файл кэша при старте: {ex.Message}");
+                _lastRatesUpdate = cache.LastRatesUpdate;
+                _cachedRates = cache.Rates;
             }
         }
 
-        private void SaveCache()
-        {
-            try
-            {
-                var cacheData = new { lastRatesUpdate = _lastRatesUpdate, rates = _cachedRates };
-                string serializedCache = JsonSerializer.Serialize(cacheData, new JsonSerializerOptions { WriteIndented = true });
-                File.WriteAllText(CacheFilePath, serializedCache);
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"[CurrencyModule] Не удалось сохранить кэш в файл: {ex.Message}");
-            }
-        }
+        private void SaveCache() =>
+            JsonFile.Save(CacheFilePath, new RatesCache { LastRatesUpdate = _lastRatesUpdate, Rates = _cachedRates }, "Currency");
     }
 }

@@ -14,14 +14,17 @@ namespace AnikiChatBot
         private const string RunningMarkerFile = "running.flag";
         private static readonly TimeSpan YtDlpUpdateInterval = TimeSpan.FromHours(24);
 
+        private const string RestartRequestedFile = "restart-requested.txt";
+
         private readonly IConfiguration _config;
-        private readonly HttpClient _httpClient = new HttpClient();
 
         private readonly DateTime _startedAt = DateTime.Now;
 
         private HashSet<long> _allowedChatIds = new();
         private OwnerNotifier _notifier = null!;
         private readonly StatsService _stats = new StatsService();
+        private readonly Modules.Penis.PenisStore _penisStore = new Modules.Penis.PenisStore();
+        private readonly MuteStore _mutes = new MuteStore();
         private readonly PenisModule _penisModule;
         private readonly HelpModule _helpModule = new HelpModule();
         private SpamModule _spamModule = null!;
@@ -35,8 +38,15 @@ namespace AnikiChatBot
         public BotWorker(IConfiguration config)
         {
             _config = config;
-            _penisModule = new PenisModule(new Modules.Penis.PenisStore(), stats: _stats);
-            _funModule = new FunModule(_stats);
+            _penisModule = new PenisModule(_penisStore, stats: _stats);
+            _funModule = new FunModule(_stats, mutes: _mutes);
+        }
+
+        private void FlushAll()
+        {
+            _stats.Flush();
+            _penisStore.Flush();
+            _repeaterModule?.Flush();
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -47,15 +57,13 @@ namespace AnikiChatBot
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
-                _stats.Flush();
-                _repeaterModule?.Flush();
+                FlushAll();
                 try { File.Delete(RunningMarkerFile); } catch { }
             }
             catch (Exception ex)
             {
                 Console.Error.WriteLine($"[Fatal] {ex}");
-                _stats.Flush();
-                _repeaterModule?.Flush();
+                FlushAll();
 
                 if (_notifier != null)
                     await _notifier.NotifyNowAsync($"Бот упал и будет перезапущен:\n{ex.Message}", TimeSpan.FromSeconds(10));
@@ -89,12 +97,12 @@ namespace AnikiChatBot
             _notifier.Attach(botClient);
 
             _membersModule = new MembersModule(_config["OwnerUsername"], _stats);
-            _spamModule = new SpamModule(_config["OwnerUsername"]);
+            _spamModule = new SpamModule(_config["OwnerUsername"], _mutes, _stats);
             _newcomerModule = new NewcomerLinksModule(_notifier);
 
             MediaModule.CleanupTempFiles();
 
-            _currencyModule = new CurrencyModule(_httpClient, exchangeApiKey, _notifier, _stats);
+            _currencyModule = new CurrencyModule(Modules.Media.MediaHttp.Client, exchangeApiKey, _notifier, _stats);
             _repeaterModule = new RepeaterModule(_stats);
             _mediaModule = new MediaModule(
                 ytDlpPath: _config["YtDlpPath"] ?? @"C:\YTDLP\yt-dlp.exe",
@@ -129,6 +137,12 @@ namespace AnikiChatBot
 
             if (crashedLastTime)
                 _notifier.Notify("restart", "Бот перезапустился после сбоя. Подробности — в логе за сегодня.");
+
+            if (File.Exists(RestartRequestedFile))
+            {
+                File.Delete(RestartRequestedFile);
+                _notifier.Notify("restart-done", "✅ Перезапущен по команде.");
+            }
 
             await Task.WhenAll(UpdateYtDlpLoopAsync(ct), WeeklyReportLoopAsync(botClient, ct));
         }
@@ -209,12 +223,14 @@ namespace AnikiChatBot
                 return;
             }
 
-            if (message.From is { IsBot: false } author)
-                _stats.RecordMessage(message.Chat.Id, author.Id, PenisModule.DisplayName(author));
-
             if (await HandledByAsync("Spam", () => _spamModule.HandleMessage(bot, message, ct))
-                || await HandledByAsync("Newcomer", () => _newcomerModule.HandleMessage(bot, message, ct))
-                || await HandledByAsync("Moderation", () => _spamModule.HandleModerationCommand(bot, message, ct))
+                || await HandledByAsync("Newcomer", () => _newcomerModule.HandleMessage(bot, message, ct)))
+                return;
+
+            if (message.From is { IsBot: false } author)
+                _stats.RecordMessage(message.Chat.Id, author.Id, Users.DisplayName(author));
+
+            if (await HandledByAsync("Moderation", () => _spamModule.HandleModerationCommand(bot, message, ct))
                 || await HandledByAsync("Help", () => _helpModule.HandleCommand(bot, message, ct))
                 || await HandledByAsync("Fun", () => _funModule.HandleCommand(bot, message, ct))
                 || await HandledByAsync("Penis", () => _penisModule.HandleCommand(bot, message, ct)))
@@ -233,7 +249,14 @@ namespace AnikiChatBot
             const string commands =
                 "/status — состояние бота\n" +
                 "/log — последние 30 строк лога (/log 80 — больше)\n" +
+                "/restart — перезапустить бота\n" +
                 "В чате: /mutelist — кого замьютил бот, /unmute — снять мут";
+
+            if (command == "/restart")
+            {
+                await RestartAsync(bot, message.Chat.Id, ct);
+                return;
+            }
 
             string reply = command switch
             {
@@ -244,6 +267,25 @@ namespace AnikiChatBot
             };
 
             await bot.SendMessage(message.Chat.Id, reply, cancellationToken: ct);
+        }
+
+        private async Task RestartAsync(ITelegramBotClient bot, long chatId, CancellationToken ct)
+        {
+            if (!Microsoft.Extensions.Hosting.WindowsServices.WindowsServiceHelpers.IsWindowsService())
+            {
+                await bot.SendMessage(chatId, "Бот запущен не как служба — перезапусти его вручную.", cancellationToken: ct);
+                return;
+            }
+
+            await bot.SendMessage(chatId, "♻️ Перезапускаюсь…", cancellationToken: ct);
+            File.WriteAllText(RestartRequestedFile, DateTime.Now.ToString("O"));
+
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("powershell.exe",
+                "-NoProfile -Command \"Start-Sleep 2; Restart-Service AnikiChatBot -Force\"")
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true
+            });
         }
 
         public static int ParseLogLines(string args) =>
@@ -314,12 +356,6 @@ namespace AnikiChatBot
                 _notifier.Notify($"polling:{api.ErrorCode}", $"Ошибка Telegram API: [{api.ErrorCode}] {api.Message}");
 
             return Task.CompletedTask;
-        }
-
-        public override void Dispose()
-        {
-            _httpClient.Dispose();
-            base.Dispose();
         }
     }
 }

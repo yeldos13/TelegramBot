@@ -21,8 +21,7 @@ namespace AnikiChatBot.Modules
         readonly ConcurrentDictionary<string, (string Trigger, string Answer)> repliesDatabase = new();
         readonly object saveLock = new object();
         readonly string filePath;
-        readonly Timer saveTimer;
-        bool dirty;
+        readonly PeriodicSaver saver;
 
         readonly StatsService? stats;
 
@@ -31,7 +30,7 @@ namespace AnikiChatBot.Modules
             this.stats = stats;
             this.filePath = filePath;
             LoadRepliesFromFile();
-            saveTimer = new Timer(_ => Flush(), null, SaveInterval, SaveInterval);
+            saver = new PeriodicSaver(SaveRepliesToFile, saveLock, SaveInterval);
         }
 
         public int Count => repliesDatabase.Count;
@@ -106,22 +105,9 @@ namespace AnikiChatBot.Modules
                 || answer.Contains(Separator);
         }
 
-        public void Flush()
-        {
-            lock (saveLock)
-            {
-                if (!dirty)
-                    return;
-                dirty = false;
-                SaveRepliesToFile();
-            }
-        }
+        public void Flush() => saver.Flush();
 
-        void MarkDirty()
-        {
-            lock (saveLock)
-                dirty = true;
-        }
+        void MarkDirty() => saver.MarkDirty();
 
         void SaveRepliesToFile()
         {

@@ -38,20 +38,8 @@ namespace AnikiChatBot.Modules
             foreach (var old in _recent.Where(x => now - x.Value > DuplicateWindow).ToList())
                 _recent.TryRemove(old.Key, out _);
 
-            _stats?.RecordLeft(left.ChatId, BuildDisplayName(left.User));
+            _stats?.RecordLeft(left.ChatId, Users.NameWithUsername(left.User));
             await bot.SendMessage(left.ChatId, BuildLeaveText(left.User, _tagUsername), cancellationToken: ct);
-        }
-
-        public static string BuildDisplayName(User user)
-        {
-            string name = string.Join(" ", new[] { user.FirstName, user.LastName }.Where(s => !string.IsNullOrWhiteSpace(s)));
-            if (string.IsNullOrWhiteSpace(name))
-                name = "Участник";
-
-            if (!string.IsNullOrEmpty(user.Username))
-                name += $" (@{user.Username})";
-
-            return name;
         }
 
         public record LeftMember(long ChatId, User User);
@@ -89,7 +77,7 @@ namespace AnikiChatBot.Modules
 
         public static string BuildLeaveText(User user, string? tagUsername)
         {
-            string text = $"{BuildDisplayName(user)} покинул(а) чат";
+            string text = $"{Users.NameWithUsername(user)} покинул(а) чат";
             string? tag = tagUsername?.TrimStart('@');
             return string.IsNullOrEmpty(tag) ? text : $"{text} @{tag}";
         }
