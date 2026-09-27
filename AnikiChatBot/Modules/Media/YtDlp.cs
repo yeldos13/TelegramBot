@@ -108,6 +108,19 @@ namespace AnikiChatBot.Modules.Media
             return pages.ToString();
         }
 
+        public async Task<string> GetVersionAsync(CancellationToken ct)
+        {
+            try
+            {
+                var result = await RunAsync(["--version"], ct, addCommonArgs: false);
+                return result.ExitCode == 0 ? result.StdOut.Trim() : "ошибка запуска";
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                return $"не запускается: {ex.Message}";
+            }
+        }
+
         public async Task<string?> UpdateAsync(CancellationToken ct)
         {
             try

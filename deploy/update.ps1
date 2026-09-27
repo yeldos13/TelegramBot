@@ -26,6 +26,8 @@ Write-Host "==> Публикация" -ForegroundColor Cyan
 dotnet publish $Project -c Release -r win-x64 --self-contained false -o $InstallDir
 $ok = $LASTEXITCODE -eq 0
 
+icacls (Join-Path $InstallDir "appsettings.json") /inheritance:r /grant:r "*S-1-5-18:F" "*S-1-5-32-544:F" | Out-Null
+
 Write-Host "==> Запуск службы" -ForegroundColor Cyan
 Start-Service $ServiceName
 if (-not $ok) { throw "Ошибка публикации — запущена предыдущая версия бота." }

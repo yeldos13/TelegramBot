@@ -40,6 +40,8 @@ namespace AnikiChatBot.Modules
         private DateTime _lastRatesUpdate = DateTime.MinValue;
         private Dictionary<string, double> _cachedRates = new();
 
+        public DateTime LastRatesUpdateUtc => _lastRatesUpdate;
+
         public CurrencyModule(HttpClient httpClient, string exchangeApiKey, OwnerNotifier? notifier = null)
         {
             _httpClient = httpClient;

@@ -17,11 +17,14 @@ namespace AnikiChatBot
         private readonly IConfiguration _config;
         private readonly HttpClient _httpClient = new HttpClient();
 
+        private readonly DateTime _startedAt = DateTime.Now;
+
         private HashSet<long> _allowedChatIds = new();
         private OwnerNotifier _notifier = null!;
         private CurrencyModule _currencyModule = null!;
         private MediaModule _mediaModule = null!;
         private RepeaterModule _repeaterModule = null!;
+        private MembersModule _membersModule = null!;
 
         public BotWorker(IConfiguration config)
         {
@@ -73,6 +76,8 @@ namespace AnikiChatBot
             _notifier = new OwnerNotifier(_config["OwnerUsername"]);
             _notifier.Attach(botClient);
 
+            _membersModule = new MembersModule(_config["OwnerUsername"]);
+
             MediaModule.CleanupTempFiles();
 
             _currencyModule = new CurrencyModule(_httpClient, exchangeApiKey, _notifier);
@@ -88,11 +93,12 @@ namespace AnikiChatBot
             botClient.StartReceiving(
                 updateHandler: HandleUpdateAsync,
                 errorHandler: HandlePollingErrorAsync,
-                receiverOptions: new ReceiverOptions { AllowedUpdates = Array.Empty<UpdateType>() },
+                receiverOptions: new ReceiverOptions { AllowedUpdates = [UpdateType.Message, UpdateType.ChatMember] },
                 cancellationToken: ct
             );
 
             var me = await botClient.GetMe(ct);
+            _membersModule.SetBotId(me.Id);
             Console.WriteLine($"Bot @{me.Username} started. Allowed chats count: {_allowedChatIds.Count}, replies: {_repeaterModule.Count}");
 
             if (!_notifier.HasOwner)
@@ -115,25 +121,79 @@ namespace AnikiChatBot
 
         private async Task HandleUpdateAsync(ITelegramBotClient bot, Update update, CancellationToken ct)
         {
+            if (update.ChatMember is { } change)
+            {
+                if (_allowedChatIds.Contains(change.Chat.Id))
+                    await RunModuleAsync("Members", () => _membersModule.HandleMembersUpdate(bot, update, ct));
+                return;
+            }
+
             if (update.Message is not { } message)
                 return;
 
             if (_notifier.TryRegisterOwner(message))
             {
-                if (message.Text?.StartsWith("/start") == true)
-                {
-                    await RunModuleAsync("Notifier", () => bot.SendMessage(message.Chat.Id,
-                        "Привет! Сюда буду присылать уведомления об ошибках бота.", cancellationToken: ct));
-                }
+                await RunModuleAsync("Owner", () => HandleOwnerCommandAsync(bot, message, ct));
                 return;
             }
 
             if (!_allowedChatIds.Contains(message.Chat.Id))
                 return;
 
+            if (message.LeftChatMember != null)
+            {
+                await RunModuleAsync("Members", () => _membersModule.HandleMembersUpdate(bot, update, ct));
+                return;
+            }
+
             await RunModuleAsync("Currency", () => _currencyModule.HandleCurrencyCommand(bot, update, ct));
             await RunModuleAsync("Media", () => _mediaModule.HandleMediaCommand(bot, update, ct));
             await RunModuleAsync("Repeater", () => _repeaterModule.HandleRepeaterCommand(bot, update, ct));
+        }
+
+        private async Task HandleOwnerCommandAsync(ITelegramBotClient bot, Message message, CancellationToken ct)
+        {
+            string command = message.Text?.Split(' ', '@')[0].ToLowerInvariant() ?? "";
+
+            string reply = command switch
+            {
+                "/start" => "Привет! Сюда буду присылать уведомления об ошибках бота.\n/status — состояние бота",
+                "/status" => await BuildStatusAsync(ct),
+                _ => "Команды:\n/status — состояние бота"
+            };
+
+            await bot.SendMessage(message.Chat.Id, reply, cancellationToken: ct);
+        }
+
+        private async Task<string> BuildStatusAsync(CancellationToken ct)
+        {
+            var lines = new List<string>
+            {
+                $"✅ Работает {FormatUptime(DateTime.Now - _startedAt)} (с {_startedAt:dd.MM HH:mm})",
+                $"Режим: {(Microsoft.Extensions.Hosting.WindowsServices.WindowsServiceHelpers.IsWindowsService() ? "служба Windows" : "консоль")}",
+                $"Чатов: {_allowedChatIds.Count}, автоответов: {_repeaterModule.Count}",
+                $"Медиа: отправлено {_mediaModule.SentCount}, ошибок {_mediaModule.FailedCount}",
+            };
+
+            if (_mediaModule.LastError is { } lastError)
+                lines.Add($"Последняя ошибка: {lastError}");
+
+            lines.Add(_currencyModule.LastRatesUpdateUtc == DateTime.MinValue
+                ? "Курсы: ещё не загружались"
+                : $"Курсы обновлены: {_currencyModule.LastRatesUpdateUtc.ToLocalTime():dd.MM HH:mm}");
+
+            lines.Add($"yt-dlp: {await _mediaModule.GetYtDlpVersionAsync(ct)}");
+
+            return string.Join("\n", lines);
+        }
+
+        public static string FormatUptime(TimeSpan uptime)
+        {
+            if (uptime.TotalDays >= 1)
+                return $"{(int)uptime.TotalDays} д {uptime.Hours} ч";
+            if (uptime.TotalHours >= 1)
+                return $"{uptime.Hours} ч {uptime.Minutes} мин";
+            return $"{Math.Max(1, uptime.Minutes)} мин";
         }
 
         private async Task RunModuleAsync(string name, Func<Task> action)

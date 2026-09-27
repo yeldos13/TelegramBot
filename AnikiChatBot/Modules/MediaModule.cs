@@ -29,6 +29,15 @@ namespace AnikiChatBot.Modules
         private readonly OwnerNotifier? _notifier;
         private readonly SemaphoreSlim _slots = new(MaxParallel);
 
+        private int _sentCount;
+        private int _failedCount;
+
+        public int SentCount => _sentCount;
+        public int FailedCount => _failedCount;
+        public string? LastError { get; private set; }
+
+        public Task<string> GetYtDlpVersionAsync(CancellationToken ct) => _ytDlp.GetVersionAsync(ct);
+
         public MediaModule(string ytDlpPath, string ffmpegPath, string? cookiesFile, OwnerNotifier? notifier = null)
         {
             _ytDlp = new YtDlp(ytDlpPath, ffmpegPath, cookiesFile);
@@ -164,15 +173,20 @@ namespace AnikiChatBot.Modules
                 }
 
                 await SendAsync(bot, message, ready, timeout.Token);
+                Interlocked.Increment(ref _sentCount);
             }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
             {
                 Console.Error.WriteLine($"[Media] {uri}: превышено время обработки");
+                Interlocked.Increment(ref _failedCount);
+                LastError = $"{DateTime.Now:dd.MM HH:mm} {uri}: превышено время обработки";
                 _notifier?.Notify($"media-timeout:{source.GetType().Name}", $"Скачивание не уложилось в 10 минут: {uri}");
             }
             catch (Exception ex)
             {
                 Console.Error.WriteLine($"[Media] {uri}: {ex.Message}");
+                Interlocked.Increment(ref _failedCount);
+                LastError = $"{DateTime.Now:dd.MM HH:mm} {uri}: {ex.Message}";
                 _notifier?.Notify($"media:{source.GetType().Name}", $"Не удалось скачать {uri}\n{ex.Message}");
             }
             finally
