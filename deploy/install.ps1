@@ -33,7 +33,7 @@ icacls (Join-Path $InstallDir "appsettings.json") /inheritance:r /grant:r "*S-1-
 if ($LASTEXITCODE -ne 0) { throw "Не удалось ограничить доступ к appsettings.json." }
 
 Step "Перенос данных из $DataFrom"
-foreach ($file in "replies.txt", "rates_cache.json", "owner_id.txt") {
+foreach ($file in "replies.txt", "rates_cache.json", "owner_id.txt", "stats.json") {
     $source = Join-Path $DataFrom $file
     $target = Join-Path $InstallDir $file
     if (Test-Path $target) {

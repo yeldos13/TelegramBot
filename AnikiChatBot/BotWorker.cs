@@ -21,6 +21,7 @@ namespace AnikiChatBot
 
         private HashSet<long> _allowedChatIds = new();
         private OwnerNotifier _notifier = null!;
+        private readonly StatsService _stats = new StatsService();
         private CurrencyModule _currencyModule = null!;
         private MediaModule _mediaModule = null!;
         private RepeaterModule _repeaterModule = null!;
@@ -76,17 +77,18 @@ namespace AnikiChatBot
             _notifier = new OwnerNotifier(_config["OwnerUsername"]);
             _notifier.Attach(botClient);
 
-            _membersModule = new MembersModule(_config["OwnerUsername"]);
+            _membersModule = new MembersModule(_config["OwnerUsername"], _stats);
 
             MediaModule.CleanupTempFiles();
 
-            _currencyModule = new CurrencyModule(_httpClient, exchangeApiKey, _notifier);
-            _repeaterModule = new RepeaterModule();
+            _currencyModule = new CurrencyModule(_httpClient, exchangeApiKey, _notifier, _stats);
+            _repeaterModule = new RepeaterModule(_stats);
             _mediaModule = new MediaModule(
                 ytDlpPath: _config["YtDlpPath"] ?? @"C:\YTDLP\yt-dlp.exe",
                 ffmpegPath: _config["FfmpegPath"] ?? @"C:\FFMPEG\bin\ffmpeg.exe",
                 cookiesFile: _config["CookiesFile"],
-                notifier: _notifier);
+                notifier: _notifier,
+                stats: _stats);
 
             await botClient.DropPendingUpdates(ct);
 
@@ -107,7 +109,30 @@ namespace AnikiChatBot
             if (crashedLastTime)
                 _notifier.Notify("restart", "Бот перезапустился после сбоя. Подробности — в логе за сегодня.");
 
-            await UpdateYtDlpLoopAsync(ct);
+            await Task.WhenAll(UpdateYtDlpLoopAsync(ct), WeeklyReportLoopAsync(botClient, ct));
+        }
+
+        private async Task WeeklyReportLoopAsync(ITelegramBotClient bot, CancellationToken ct)
+        {
+            while (true)
+            {
+                var now = DateTime.Now;
+                if (_stats.IsReportDue(now))
+                {
+                    var periodStart = _stats.PeriodStart;
+
+                    foreach (long chatId in _allowedChatIds)
+                    {
+                        string report = StatsService.BuildReport(_stats.GetChat(chatId), periodStart, now, _config["OwnerUsername"]);
+                        await RunModuleAsync("WeeklyReport", () => bot.SendMessage(chatId, report, cancellationToken: ct));
+                    }
+
+                    _stats.StartNewPeriod(now);
+                    Console.WriteLine("[Stats] Недельный отчёт отправлен");
+                }
+
+                await Task.Delay(TimeSpan.FromMinutes(10), ct);
+            }
         }
 
         private async Task UpdateYtDlpLoopAsync(CancellationToken ct)
@@ -182,6 +207,7 @@ namespace AnikiChatBot
                 ? "Курсы: ещё не загружались"
                 : $"Курсы обновлены: {_currencyModule.LastRatesUpdateUtc.ToLocalTime():dd.MM HH:mm}");
 
+            lines.Add($"Недельный отчёт: {StatsService.NextReportTime(_stats.PeriodStart):dd.MM HH:mm}");
             lines.Add($"yt-dlp: {await _mediaModule.GetYtDlpVersionAsync(ct)}");
 
             return string.Join("\n", lines);

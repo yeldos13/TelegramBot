@@ -42,11 +42,14 @@ namespace AnikiChatBot.Modules
 
         public DateTime LastRatesUpdateUtc => _lastRatesUpdate;
 
-        public CurrencyModule(HttpClient httpClient, string exchangeApiKey, OwnerNotifier? notifier = null)
+        private readonly StatsService? _stats;
+
+        public CurrencyModule(HttpClient httpClient, string exchangeApiKey, OwnerNotifier? notifier = null, StatsService? stats = null)
         {
             _httpClient = httpClient;
             _exchangeApiKey = exchangeApiKey;
             _notifier = notifier;
+            _stats = stats;
             LoadCache();
         }
 
@@ -96,6 +99,8 @@ namespace AnikiChatBot.Modules
                 replyParameters: new ReplyParameters { MessageId = update.Message.Id },
                 cancellationToken: ct
             );
+
+            _stats?.RecordConversion(update.Message.Chat.Id);
         }
 
         public static bool TryParseAmount(string text, out double amount, out string currency)

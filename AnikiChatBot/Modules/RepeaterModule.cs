@@ -11,8 +11,11 @@ namespace AnikiChatBot.Modules
         readonly ConcurrentDictionary<string, string> repliesDatabase = new ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         readonly object saveLock = new object();
 
-        public RepeaterModule()
+        readonly StatsService? stats;
+
+        public RepeaterModule(StatsService? stats = null)
         {
+            this.stats = stats;
             LoadRepliesFromFile();
         }
 
@@ -44,6 +47,8 @@ namespace AnikiChatBot.Modules
                     replyParameters: new ReplyParameters { MessageId = message.Id },
                     cancellationToken: ct
                 );
+
+                stats?.RecordReply(message.Chat.Id);
             }
         }
 

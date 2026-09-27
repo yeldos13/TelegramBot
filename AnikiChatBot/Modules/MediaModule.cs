@@ -19,7 +19,7 @@ namespace AnikiChatBot.Modules
 
         private static readonly Regex LinkRegex = new(@"https?://[^\s<>""']+", RegexOptions.Compiled);
 
-        private const int MaxParallel = 2;
+        private const int MaxParallel = 1;
 
         private static readonly string TempRoot = Path.Combine(Path.GetTempPath(), "AnikiChatBot");
 
@@ -27,6 +27,7 @@ namespace AnikiChatBot.Modules
         private readonly FFmpeg _ffmpeg;
         private readonly List<IMediaSource> _sources;
         private readonly OwnerNotifier? _notifier;
+        private readonly StatsService? _stats;
         private readonly SemaphoreSlim _slots = new(MaxParallel);
 
         private int _sentCount;
@@ -38,8 +39,10 @@ namespace AnikiChatBot.Modules
 
         public Task<string> GetYtDlpVersionAsync(CancellationToken ct) => _ytDlp.GetVersionAsync(ct);
 
-        public MediaModule(string ytDlpPath, string ffmpegPath, string? cookiesFile, OwnerNotifier? notifier = null)
+        public MediaModule(string ytDlpPath, string ffmpegPath, string? cookiesFile,
+            OwnerNotifier? notifier = null, StatsService? stats = null)
         {
+            _stats = stats;
             _ytDlp = new YtDlp(ytDlpPath, ffmpegPath, cookiesFile);
             _ffmpeg = new FFmpeg(ffmpegPath);
             _notifier = notifier;
@@ -174,6 +177,7 @@ namespace AnikiChatBot.Modules
 
                 await SendAsync(bot, message, ready, timeout.Token);
                 Interlocked.Increment(ref _sentCount);
+                _stats?.RecordMedia(message.Chat.Id);
             }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
             {
