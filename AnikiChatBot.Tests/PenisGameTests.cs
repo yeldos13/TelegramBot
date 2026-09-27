@@ -259,6 +259,35 @@ namespace AnikiChatBot.Tests
             }
         }
 
+        [Fact]
+        public void Give_transfers_centimeters()
+        {
+            var module = new PenisModule(new PenisStore(_file), new Random(42));
+            var stranger = new User { Id = 3, FirstName = "Коля" };
+
+            Assert.Contains("Ответь /give", module.Give(-1, Vasya, null, "5"));
+            Assert.Contains("Ответь /give", module.Give(-1, Vasya, Vasya, "5"));
+            Assert.Contains("нет пениса", module.Give(-1, Vasya, Petya, "5"));
+
+            module.Grow(-1, Vasya);
+            module.Grow(-1, Petya);
+            Assert.Contains("ещё нет пениса", module.Give(-1, Vasya, stranger, "1"));
+            Assert.Contains("Укажи, сколько", module.Give(-1, Vasya, Petya, "-3"));
+
+            int vasyaBefore = SizeOf(module.My(-1, Vasya));
+            int petyaBefore = SizeOf(module.My(-1, Petya));
+
+            Assert.Contains("Столько нет", module.Give(-1, Vasya, Petya, vasyaBefore.ToString()));
+
+            string result = module.Give(-1, Vasya, Petya, "1");
+            Assert.StartsWith("🎁 Вася дарит Петя Иванов 1 см.", result);
+            Assert.Equal(vasyaBefore - 1, SizeOf(module.My(-1, Vasya)));
+            Assert.Equal(petyaBefore + 1, SizeOf(module.My(-1, Petya)));
+        }
+
+        private static int SizeOf(string my) =>
+            int.Parse(my.Split('\n').First(l => l.StartsWith("Размер:")).Split(' ')[1]);
+
         [Theory]
         [InlineData(1, 10, 20, DuelHit.Normal, new[] { "duel_first", "duel_goliath" })]
         [InlineData(10, 30, 10, DuelHit.Knockout, new[] { "duel_first", "duel_10", "duel_knockout" })]

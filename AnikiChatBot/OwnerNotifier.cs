@@ -58,6 +58,25 @@ namespace AnikiChatBot
             _ = SendAsync(text, CancellationToken.None);
         }
 
+        public async Task ForwardToOwnerAsync(long chatId, int messageId, string note, CancellationToken ct)
+        {
+            if (_bot == null || _ownerId is not { } ownerId)
+            {
+                Console.Error.WriteLine("[Notifier] Некому переслать сообщение: владелец не написал боту /start");
+                return;
+            }
+
+            try
+            {
+                await _bot.SendMessage(ownerId, note, cancellationToken: ct);
+                await _bot.ForwardMessage(ownerId, chatId, messageId, cancellationToken: ct);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[Notifier] Не удалось переслать сообщение владельцу: {ex.Message}");
+            }
+        }
+
         public async Task NotifyNowAsync(string text, TimeSpan timeout)
         {
             using var cts = new CancellationTokenSource(timeout);

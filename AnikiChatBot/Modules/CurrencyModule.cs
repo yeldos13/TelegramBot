@@ -13,22 +13,33 @@ namespace AnikiChatBot.Modules
         private const string CacheFilePath = "rates_cache.json";
         private static readonly TimeSpan CacheLifetime = TimeSpan.FromHours(6);
 
+        private const string Multiplier = @"кк|kk|к|k|тыс\.?|тысяч[аи]?|млн|миллион(?:а|ов)?|млрд";
+
+        private const string Num = @"((?<!\d)(?:\d{1,3}(?:[   ]\d{3})+|\d+)(?:[.,]\d+)*(?:\s?(?:" + Multiplier + @"))?)";
+
         private static readonly Regex NamedCurrencyRegex = new Regex(
-            @"(?:(\d+(?:[.,]\d+)?)\s*(?:рубл[яьей]+|руб|р|₽)(?!\w))|" +
-            @"(?:(?:\$|доллар[аов]*|бакс[аов]*)\s*(\d+(?:[.,]\d+)?)|(\d+(?:[.,]\d+)?)\s*(?:\$|доллар[аов]*|бакс[аов]*)(?!\w))|" +
-            @"(?:(?:€|евро)\s*(\d+(?:[.,]\d+)?)|(\d+(?:[.,]\d+)?)\s*(?:€|евро)(?!\w))|" +
-            @"(?:(\d+(?:[.,]\d+)?)\s*(?:тенге|тг|kzt|₸)(?!\w))|" +
-            @"(?:(\d+(?:[.,]\d+)?)\s*(?:грив[еньеяидлз]*|грн|uah|₴)(?!\w))|" +
-            @"(?:(\d+(?:[.,]\d+)?)\s*(?:бел\.?\s*руб(?:л[яьей]+|ь)?|бр|byn)(?!\w))|" +
-            @"(?:(?:c\$)\s*(\d+(?:[.,]\d+)?)|(\d+(?:[.,]\d+)?)\s*(?:c\$|cad|канадск[аиоыхьйе]*\s*доллар[аов]*)(?!\w))",
+            @"(?:" + Num + @"\s*(?:рубл[яьей]+|руб|р|₽)(?!\w))|" +
+            @"(?:(?:\$|доллар[аов]*|бакс[аов]*)\s*" + Num + @"|" + Num + @"\s*(?:\$|доллар[аов]*|бакс[аов]*)(?!\w))|" +
+            @"(?:(?:€|евро)\s*" + Num + @"|" + Num + @"\s*(?:€|евро)(?!\w))|" +
+            @"(?:" + Num + @"\s*(?:тенге|тг|kzt|₸)(?!\w))|" +
+            @"(?:" + Num + @"\s*(?:грив[еньеяидлз]*|грн|uah|₴)(?!\w))|" +
+            @"(?:" + Num + @"\s*(?:бел\.?\s*руб(?:л[яьей]+|ь)?|бр|byn)(?!\w))|" +
+            @"(?:(?:c\$)\s*" + Num + @"|" + Num + @"\s*(?:c\$|cad|канадск[аиоыхьйе]*\s*доллар[аов]*)(?!\w))",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         private static readonly string[] NamedGroupCurrencies =
             ["", "RUB", "USD", "USD", "EUR", "EUR", "KZT", "UAH", "BYN", "CAD", "CAD"];
 
         private static readonly Regex GenericCurrencyRegex = new Regex(
-            @"(?:(\d+(?:[.,]\d+)?)\s*([a-zA-Z]{3})\b)",
+            Num + @"\s*([a-zA-Z]{3})\b",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex MultiplierRegex = new Regex(
+            @"^(.*?)\s?(" + Multiplier + @")$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private const int MaxAmountsPerMessage = 3;
+
+        public record ParsedAmount(double Amount, string Currency);
 
         private static readonly string[] PopularCurrencies = ["RUB", "USD", "EUR", "KZT", "UAH", "BYN", "CAD"];
 
@@ -57,21 +68,41 @@ namespace AnikiChatBot.Modules
         {
             if (update.Message?.Text is not { } text || string.IsNullOrEmpty(text)) return;
 
-            if (!TryParseAmount(text, out double originalAmount, out string sourceCurrency)) return;
+            var amounts = ParseAmounts(text);
+            if (amounts.Count == 0) return;
 
             var rates = await GetExchangeRatesAsync();
             if (rates == null) return;
 
-            if (sourceCurrency != "RUB" && !rates.ContainsKey(sourceCurrency)) return;
+            var blocks = amounts
+                .Where(a => a.Currency == "RUB" || rates.ContainsKey(a.Currency))
+                .Take(MaxAmountsPerMessage)
+                .Select(a => BuildConversion(a.Amount, a.Currency, rates))
+                .ToList();
 
-            double rubAmount = sourceCurrency == "RUB" ? originalAmount : (originalAmount / rates[sourceCurrency]);
+            if (blocks.Count == 0) return;
+
+            Message sentMessage = await bot.SendMessage(
+                chatId: update.Message.Chat.Id,
+                text: string.Join("\n\n", blocks),
+                parseMode: ParseMode.Markdown,
+                replyParameters: new ReplyParameters { MessageId = update.Message.Id },
+                cancellationToken: ct
+            );
+
+            _stats?.RecordConversion(update.Message.Chat.Id);
+        }
+
+        private static string BuildConversion(double amount, string sourceCurrency, Dictionary<string, double> rates)
+        {
+            double rubAmount = sourceCurrency == "RUB" ? amount : amount / rates[sourceCurrency];
 
             var currencies = PopularCurrencies.ToList();
             if (!currencies.Contains(sourceCurrency))
                 currencies.Insert(0, sourceCurrency);
 
             var sb = new StringBuilder();
-            sb.AppendLine($"*{originalAmount:N2} {GetCurrencyTargetInfo(sourceCurrency)}:*");
+            sb.AppendLine($"*{amount:N2} {GetCurrencyTargetInfo(sourceCurrency)}:*");
             sb.AppendLine();
 
             foreach (var currency in currencies)
@@ -92,50 +123,92 @@ namespace AnikiChatBot.Modules
                 sb.AppendLine($"{GetCurrencyTargetInfo(currency)} *{currency}:* {targetAmount:N2}");
             }
 
-            Message sentMessage = await bot.SendMessage(
-                chatId: update.Message.Chat.Id,
-                text: sb.ToString().TrimEnd(),
-                parseMode: ParseMode.Markdown,
-                replyParameters: new ReplyParameters { MessageId = update.Message.Id },
-                cancellationToken: ct
-            );
-
-            _stats?.RecordConversion(update.Message.Chat.Id);
+            return sb.ToString().TrimEnd();
         }
 
         public static bool TryParseAmount(string text, out double amount, out string currency)
         {
-            amount = 0;
-            currency = "";
-            string amountStr = "";
+            var first = ParseAmounts(text).FirstOrDefault();
+            amount = first?.Amount ?? 0;
+            currency = first?.Currency ?? "";
+            return first != null;
+        }
 
-            var namedMatch = NamedCurrencyRegex.Match(text);
-            if (namedMatch.Success)
+        public static List<ParsedAmount> ParseAmounts(string text)
+        {
+            var found = new List<(int Index, int Length, ParsedAmount Amount)>();
+
+            foreach (Match match in NamedCurrencyRegex.Matches(text))
             {
                 for (int group = 1; group < NamedGroupCurrencies.Length; group++)
                 {
-                    if (!string.IsNullOrEmpty(namedMatch.Groups[group].Value))
+                    if (match.Groups[group].Success && ParseNumber(match.Groups[group].Value) is { } value)
                     {
-                        amountStr = namedMatch.Groups[group].Value;
-                        currency = NamedGroupCurrencies[group];
+                        found.Add((match.Index, match.Length, new ParsedAmount(value, NamedGroupCurrencies[group])));
                         break;
                     }
                 }
             }
-            else
+
+            foreach (Match match in GenericCurrencyRegex.Matches(text))
             {
-                var genericMatch = GenericCurrencyRegex.Match(text);
-                if (genericMatch.Success)
-                {
-                    amountStr = genericMatch.Groups[1].Value;
-                    currency = genericMatch.Groups[2].Value.ToUpperInvariant();
-                }
+                bool overlaps = found.Any(f => match.Index < f.Index + f.Length && f.Index < match.Index + match.Length);
+                if (!overlaps && ParseNumber(match.Groups[1].Value) is { } value)
+                    found.Add((match.Index, match.Length, new ParsedAmount(value, match.Groups[2].Value.ToUpperInvariant())));
             }
 
-            if (string.IsNullOrEmpty(currency))
-                return false;
+            return found
+                .OrderBy(f => f.Index)
+                .Select(f => f.Amount)
+                .Where(a => a.Amount > 0)
+                .Distinct()
+                .ToList();
+        }
 
-            return double.TryParse(amountStr.Replace(',', '.'), NumberStyles.Any, CultureInfo.InvariantCulture, out amount);
+        public static double? ParseNumber(string raw)
+        {
+            string text = raw.Trim();
+            double multiplier = 1;
+
+            var suffix = MultiplierRegex.Match(text);
+            if (suffix.Success)
+            {
+                text = suffix.Groups[1].Value;
+                string word = suffix.Groups[2].Value.ToLowerInvariant();
+                multiplier = word switch
+                {
+                    "кк" or "kk" or "млн" => 1e6,
+                    _ when word.StartsWith("миллион") => 1e6,
+                    "млрд" => 1e9,
+                    _ => 1e3
+                };
+            }
+
+            text = text.Replace(" ", "").Replace(" ", "").Replace(" ", "");
+
+            int commas = text.Count(c => c == ','), dots = text.Count(c => c == '.');
+            if (commas > 0 && dots > 0)
+            {
+                char decimalSeparator = text.LastIndexOf(',') > text.LastIndexOf('.') ? ',' : '.';
+                char thousandsSeparator = decimalSeparator == ',' ? '.' : ',';
+                text = text.Replace(thousandsSeparator.ToString(), "").Replace(decimalSeparator, '.');
+            }
+            else if (commas + dots > 1)
+            {
+                text = text.Replace(",", "").Replace(".", "");
+            }
+            else if (commas + dots == 1)
+            {
+                int separator = text.IndexOfAny([',', '.']);
+                string integerPart = text[..separator], fraction = text[(separator + 1)..];
+
+                bool thousands = fraction.Length == 3 && integerPart.Length is >= 1 and <= 3 && integerPart != "0";
+                text = thousands ? integerPart + fraction : integerPart + "." + fraction;
+            }
+
+            return double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out double value)
+                ? value * multiplier
+                : null;
         }
 
         private async Task DeleteMessageAfterDelayAsync(ITelegramBotClient bot, long chatId, int messageId, TimeSpan delay)

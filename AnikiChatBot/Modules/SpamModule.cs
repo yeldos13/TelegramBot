@@ -9,35 +9,48 @@ namespace AnikiChatBot.Modules
         public const int Threshold = 7;
         public static readonly TimeSpan Window = TimeSpan.FromMinutes(2);
 
+        public const int FloodThreshold = 15;
+        public static readonly TimeSpan FloodWindow = TimeSpan.FromSeconds(30);
+
+        public enum HitKind { Spam, Flood }
+
+        public record Hit(HitKind Kind, List<int> MessageIds);
+
         private record Entry(string Key, int MessageId, DateTime At);
 
         private readonly ConcurrentDictionary<(long ChatId, long UserId), List<Entry>> _recent = new();
         private readonly string? _ownerUsername;
+        private readonly MuteStore _mutes;
+        private string _botUsername = "";
 
-        public SpamModule(string? ownerUsername)
+        public SpamModule(string? ownerUsername, MuteStore? mutes = null)
         {
             _ownerUsername = ownerUsername?.TrimStart('@');
+            _mutes = mutes ?? new MuteStore();
         }
+
+        public void SetBotUsername(string? username) => _botUsername = username ?? "";
 
         public async Task<bool> HandleMessage(ITelegramBotClient bot, Message message, CancellationToken ct)
         {
-            if (message.From is not { IsBot: false } user || GetKey(message) is not { } key)
+            if (message.From is not { IsBot: false } user)
                 return false;
 
-            var spamIds = Register(message.Chat.Id, user.Id, key, message.MessageId, DateTime.UtcNow);
-            if (spamIds == null)
+            string key = GetKey(message) ?? $"other:{message.MessageId}";
+
+            if (Register(message.Chat.Id, user.Id, key, message.MessageId, DateTime.UtcNow) is not { } hit)
                 return false;
 
             string name = PenisModule.DisplayName(user) + (user.Username != null ? $" (@{user.Username})" : "");
-            Console.WriteLine($"[Spam] {name} в чате {message.Chat.Id}: {spamIds.Count} одинаковых сообщений");
+            Console.WriteLine($"[Spam] {hit.Kind}: {name} в чате {message.Chat.Id}, сообщений: {hit.MessageIds.Count}");
 
             try
             {
-                await bot.DeleteMessages(message.Chat.Id, spamIds, ct);
+                await bot.DeleteMessages(message.Chat.Id, hit.MessageIds, ct);
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"[Spam] Не удалось удалить спам: {ex.Message}");
+                Console.Error.WriteLine($"[Spam] Не удалось удалить сообщения: {ex.Message}");
             }
 
             bool muted;
@@ -45,6 +58,15 @@ namespace AnikiChatBot.Modules
             {
                 await bot.RestrictChatMember(message.Chat.Id, user.Id, MutedPermissions(), cancellationToken: ct);
                 muted = true;
+
+                _mutes.Add(message.Chat.Id, new MuteStore.MutedUser
+                {
+                    UserId = user.Id,
+                    Username = user.Username,
+                    Name = PenisModule.DisplayName(user),
+                    At = DateTime.Now,
+                    Reason = hit.Kind == HitKind.Spam ? "спам" : "флуд"
+                });
             }
             catch (Exception ex)
             {
@@ -52,7 +74,53 @@ namespace AnikiChatBot.Modules
                 muted = false;
             }
 
-            await bot.SendMessage(message.Chat.Id, BuildNotice(name, muted, _ownerUsername), cancellationToken: ct);
+            await bot.SendMessage(message.Chat.Id, BuildNotice(name, hit.Kind, muted, _ownerUsername), cancellationToken: ct);
+            return true;
+        }
+
+        public async Task<bool> HandleUnmuteCommand(ITelegramBotClient bot, Message message, CancellationToken ct)
+        {
+            if (PenisModule.ParseCommand(message.Text, _botUsername) is not { Command: "unmute" } command)
+                return false;
+
+            long chatId = message.Chat.Id;
+
+            if (string.IsNullOrEmpty(_ownerUsername)
+                || !string.Equals(message.From?.Username, _ownerUsername, StringComparison.OrdinalIgnoreCase))
+            {
+                await bot.SendMessage(chatId, "Снимать мут через бота может только владелец.",
+                    replyParameters: message.MessageId, cancellationToken: ct);
+                return true;
+            }
+
+            long? userId = null;
+            string? name = null;
+
+            if (message.ReplyToMessage?.From is { IsBot: false } replied)
+            {
+                userId = replied.Id;
+                name = PenisModule.DisplayName(replied);
+            }
+            else if (command.Args.StartsWith('@') && _mutes.FindByUsername(chatId, command.Args) is { } found)
+            {
+                userId = found.UserId;
+                name = found.Name;
+            }
+
+            if (userId == null)
+            {
+                await bot.SendMessage(chatId,
+                    "Ответь /unmute на сообщение человека или напиши /unmute @username " +
+                    "(по юзернейму — только тех, кого замьютил бот).",
+                    replyParameters: message.MessageId, cancellationToken: ct);
+                return true;
+            }
+
+            var chat = await bot.GetChat(chatId, ct);
+            await bot.RestrictChatMember(chatId, userId.Value, chat.Permissions ?? FullPermissions(), cancellationToken: ct);
+            _mutes.Remove(chatId, userId.Value);
+
+            await bot.SendMessage(chatId, $"🔊 {name} размучен(а).", replyParameters: message.MessageId, cancellationToken: ct);
             return true;
         }
 
@@ -75,7 +143,7 @@ namespace AnikiChatBot.Modules
             return string.IsNullOrEmpty(text) ? null : $"text:{text}";
         }
 
-        public List<int>? Register(long chatId, long userId, string key, int messageId, DateTime now)
+        public Hit? Register(long chatId, long userId, string key, int messageId, DateTime now)
         {
             var entries = _recent.GetOrAdd((chatId, userId), _ => new List<Entry>());
 
@@ -85,35 +153,52 @@ namespace AnikiChatBot.Modules
                 entries.Add(new Entry(key, messageId, now));
 
                 var same = entries.Where(e => e.Key == key).ToList();
-                if (same.Count < Threshold)
-                    return null;
+                if (same.Count >= Threshold)
+                {
+                    entries.RemoveAll(e => e.Key == key);
+                    return new Hit(HitKind.Spam, same.Select(e => e.MessageId).ToList());
+                }
 
-                entries.RemoveAll(e => e.Key == key);
-                return same.Select(e => e.MessageId).ToList();
+                var flood = entries.Where(e => now - e.At <= FloodWindow).ToList();
+                if (flood.Count >= FloodThreshold)
+                {
+                    entries.Clear();
+                    return new Hit(HitKind.Flood, flood.Select(e => e.MessageId).ToList());
+                }
+
+                return null;
             }
         }
 
-        public static string BuildNotice(string name, bool muted, string? ownerUsername)
+        public static string BuildNotice(string name, HitKind kind, bool muted, string? ownerUsername)
         {
+            string reason = kind == HitKind.Spam
+                ? $"спам ({Threshold} одинаковых сообщений)"
+                : $"флуд ({FloodThreshold} сообщений за {FloodWindow.TotalSeconds:0} секунд)";
+
             string text = muted
-                ? $"🔇 {name} получает бессрочный мут за спам ({Threshold} одинаковых сообщений). Спам удалён, размутить может админ."
-                : $"🧹 {name} спамит ({Threshold} одинаковых сообщений) — спам удалён, но замьютить не получилось (это админ или у бота нет прав).";
+                ? $"🔇 {name} получает бессрочный мут за {reason}. Сообщения удалены, размутить может админ."
+                : $"🧹 {name}: {reason} — сообщения удалены, но замьютить не получилось (это админ или у бота нет прав).";
 
             return string.IsNullOrEmpty(ownerUsername) ? text : $"{text} @{ownerUsername}";
         }
 
-        private static ChatPermissions MutedPermissions() => new ChatPermissions
+        private static ChatPermissions MutedPermissions() => SendPermissions(false);
+
+        private static ChatPermissions FullPermissions() => SendPermissions(true);
+
+        private static ChatPermissions SendPermissions(bool allowed) => new ChatPermissions
         {
-            CanSendMessages = false,
-            CanSendAudios = false,
-            CanSendDocuments = false,
-            CanSendPhotos = false,
-            CanSendVideos = false,
-            CanSendVideoNotes = false,
-            CanSendVoiceNotes = false,
-            CanSendPolls = false,
-            CanSendOtherMessages = false,
-            CanAddWebPagePreviews = false
+            CanSendMessages = allowed,
+            CanSendAudios = allowed,
+            CanSendDocuments = allowed,
+            CanSendPhotos = allowed,
+            CanSendVideos = allowed,
+            CanSendVideoNotes = allowed,
+            CanSendVoiceNotes = allowed,
+            CanSendPolls = allowed,
+            CanSendOtherMessages = allowed,
+            CanAddWebPagePreviews = allowed
         };
     }
 }

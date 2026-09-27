@@ -25,6 +25,8 @@ namespace AnikiChatBot
         private readonly PenisModule _penisModule;
         private readonly HelpModule _helpModule = new HelpModule();
         private SpamModule _spamModule = null!;
+        private NewcomerLinksModule _newcomerModule = null!;
+        private readonly FunModule _funModule;
         private CurrencyModule _currencyModule = null!;
         private MediaModule _mediaModule = null!;
         private RepeaterModule _repeaterModule = null!;
@@ -34,6 +36,7 @@ namespace AnikiChatBot
         {
             _config = config;
             _penisModule = new PenisModule(new Modules.Penis.PenisStore(), stats: _stats);
+            _funModule = new FunModule(_stats);
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -44,11 +47,15 @@ namespace AnikiChatBot
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
+                _stats.Flush();
+                _repeaterModule?.Flush();
                 try { File.Delete(RunningMarkerFile); } catch { }
             }
             catch (Exception ex)
             {
                 Console.Error.WriteLine($"[Fatal] {ex}");
+                _stats.Flush();
+                _repeaterModule?.Flush();
 
                 if (_notifier != null)
                     await _notifier.NotifyNowAsync($"Бот упал и будет перезапущен:\n{ex.Message}", TimeSpan.FromSeconds(10));
@@ -83,6 +90,7 @@ namespace AnikiChatBot
 
             _membersModule = new MembersModule(_config["OwnerUsername"], _stats);
             _spamModule = new SpamModule(_config["OwnerUsername"]);
+            _newcomerModule = new NewcomerLinksModule(_notifier);
 
             MediaModule.CleanupTempFiles();
 
@@ -108,8 +116,11 @@ namespace AnikiChatBot
             _membersModule.SetBotId(me.Id);
             _penisModule.SetBotUsername(me.Username);
             _helpModule.SetBotUsername(me.Username);
+            _spamModule.SetBotUsername(me.Username);
+            _funModule.SetBotUsername(me.Username);
 
-            await RunModuleAsync("Commands", () => botClient.SetMyCommands([HelpModule.Command, .. PenisModule.Commands],
+            await RunModuleAsync("Commands", () => botClient.SetMyCommands(
+                [HelpModule.Command, .. PenisModule.Commands, .. FunModule.Commands],
                 scope: new Telegram.Bot.Types.BotCommandScopeAllGroupChats(), cancellationToken: ct));
             Console.WriteLine($"Bot @{me.Username} started. Allowed chats count: {_allowedChatIds.Count}, replies: {_repeaterModule.Count}");
 
@@ -160,7 +171,10 @@ namespace AnikiChatBot
             if (update.ChatMember is { } change)
             {
                 if (_allowedChatIds.Contains(change.Chat.Id))
+                {
+                    _newcomerModule.HandleJoins(update);
                     await RunModuleAsync("Members", () => _membersModule.HandleMembersUpdate(bot, update, ct));
+                }
                 return;
             }
 
@@ -189,18 +203,21 @@ namespace AnikiChatBot
                 return;
             }
 
-            bool isSpam = false;
-            await RunModuleAsync("Spam", async () => isSpam = await _spamModule.HandleMessage(bot, message, ct));
-            if (isSpam)
+            if (message.NewChatMembers is { Length: > 0 })
+            {
+                _newcomerModule.HandleJoins(update);
                 return;
+            }
 
-            bool isCommand = false;
-            await RunModuleAsync("Help", async () => isCommand = await _helpModule.HandleCommand(bot, message, ct));
-            if (isCommand)
-                return;
+            if (message.From is { IsBot: false } author)
+                _stats.RecordMessage(message.Chat.Id, author.Id, PenisModule.DisplayName(author));
 
-            await RunModuleAsync("Penis", async () => isCommand = await _penisModule.HandleCommand(bot, message, ct));
-            if (isCommand)
+            if (await HandledByAsync("Spam", () => _spamModule.HandleMessage(bot, message, ct))
+                || await HandledByAsync("Newcomer", () => _newcomerModule.HandleMessage(bot, message, ct))
+                || await HandledByAsync("Unmute", () => _spamModule.HandleUnmuteCommand(bot, message, ct))
+                || await HandledByAsync("Help", () => _helpModule.HandleCommand(bot, message, ct))
+                || await HandledByAsync("Fun", () => _funModule.HandleCommand(bot, message, ct))
+                || await HandledByAsync("Penis", () => _penisModule.HandleCommand(bot, message, ct)))
                 return;
 
             await RunModuleAsync("Currency", () => _currencyModule.HandleCurrencyCommand(bot, update, ct));
@@ -252,6 +269,13 @@ namespace AnikiChatBot
             if (uptime.TotalHours >= 1)
                 return $"{uptime.Hours} ч {uptime.Minutes} мин";
             return $"{Math.Max(1, uptime.Minutes)} мин";
+        }
+
+        private async Task<bool> HandledByAsync(string name, Func<Task<bool>> action)
+        {
+            bool handled = false;
+            await RunModuleAsync(name, async () => handled = await action());
+            return handled;
         }
 
         private async Task RunModuleAsync(string name, Func<Task> action)

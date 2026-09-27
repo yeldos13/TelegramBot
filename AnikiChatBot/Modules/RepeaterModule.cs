@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using System.Text;
+using System.Text.RegularExpressions;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 
@@ -6,17 +8,30 @@ namespace AnikiChatBot.Modules
 {
     public class RepeaterModule
     {
-        const string FilePath = "replies.txt";
+        const string DefaultFilePath = "replies.txt";
+        const string Separator = ":::";
 
-        readonly ConcurrentDictionary<string, string> repliesDatabase = new ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        public const int MaxTriggerLength = 200;
+        public const int MaxAnswerLength = 500;
+
+        static readonly TimeSpan SaveInterval = TimeSpan.FromSeconds(30);
+        static readonly Regex LinkRegex = new(@"(https?://|www\.|t\.me/)\S+", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        static readonly Regex SpacesRegex = new(@"\s+", RegexOptions.Compiled);
+
+        readonly ConcurrentDictionary<string, (string Trigger, string Answer)> repliesDatabase = new();
         readonly object saveLock = new object();
+        readonly string filePath;
+        readonly Timer saveTimer;
+        bool dirty;
 
         readonly StatsService? stats;
 
-        public RepeaterModule(StatsService? stats = null)
+        public RepeaterModule(StatsService? stats = null, string filePath = DefaultFilePath)
         {
             this.stats = stats;
+            this.filePath = filePath;
             LoadRepliesFromFile();
+            saveTimer = new Timer(_ => Flush(), null, SaveInterval, SaveInterval);
         }
 
         public int Count => repliesDatabase.Count;
@@ -31,19 +46,21 @@ namespace AnikiChatBot.Modules
                 string triggerText = Normalize(replyToMessage.Text);
                 string answerText = Normalize(message.Text);
 
-                if (triggerText != answerText && !string.IsNullOrEmpty(triggerText) && !string.IsNullOrEmpty(answerText))
+                bool replyToBot = replyToMessage.From?.IsBot == true;
+
+                if (!replyToBot && ShouldLearn(triggerText, answerText))
                 {
-                    repliesDatabase[triggerText] = answerText;
-                    SaveRepliesToFile();
+                    repliesDatabase[MatchKey(triggerText)] = (triggerText, answerText);
+                    MarkDirty();
                     return;
                 }
             }
 
-            if (repliesDatabase.TryGetValue(Normalize(message.Text), out var savedAnswer))
+            if (repliesDatabase.TryGetValue(MatchKey(message.Text), out var saved))
             {
                 await bot.SendMessage(
                     chatId: message.Chat.Id,
-                    text: savedAnswer,
+                    text: saved.Answer,
                     replyParameters: new ReplyParameters { MessageId = message.Id },
                     cancellationToken: ct
                 );
@@ -57,22 +74,68 @@ namespace AnikiChatBot.Modules
             return text.Replace("\r", "").Replace("\n", " ").Trim();
         }
 
-        void SaveRepliesToFile()
+        public static string MatchKey(string text)
+        {
+            string normalized = SpacesRegex.Replace(Normalize(text), " ").ToLowerInvariant();
+
+            int start = 0, end = normalized.Length;
+            while (start < end && !IsWordChar(normalized, start)) start++;
+            while (end > start && !IsWordChar(normalized, end - 1)) end--;
+
+            return start < end ? normalized[start..end] : normalized;
+        }
+
+        static bool IsWordChar(string text, int index) => char.IsLetterOrDigit(text[index]);
+
+        public static bool ShouldLearn(string trigger, string answer)
+        {
+            return !string.IsNullOrEmpty(trigger)
+                && !string.IsNullOrEmpty(answer)
+                && MatchKey(trigger) != MatchKey(answer)
+                && !IsJunk(trigger, answer);
+        }
+
+        public static bool IsJunk(string trigger, string answer)
+        {
+            return trigger.StartsWith('/')
+                || answer.StartsWith('/')
+                || LinkRegex.IsMatch(trigger)
+                || trigger.Length > MaxTriggerLength
+                || answer.Length > MaxAnswerLength
+                || trigger.Contains(Separator)
+                || answer.Contains(Separator);
+        }
+
+        public void Flush()
         {
             lock (saveLock)
             {
-                try
-                {
-                    var lines = repliesDatabase.Select(kvp => $"{kvp.Key}:::{kvp.Value}");
+                if (!dirty)
+                    return;
+                dirty = false;
+                SaveRepliesToFile();
+            }
+        }
 
-                    string tempPath = FilePath + ".tmp";
-                    File.WriteAllLines(tempPath, lines);
-                    File.Move(tempPath, FilePath, overwrite: true);
-                }
-                catch (Exception ex)
-                {
-                    Console.Error.WriteLine($"Error while writing file {FilePath}: {ex.Message}");
-                }
+        void MarkDirty()
+        {
+            lock (saveLock)
+                dirty = true;
+        }
+
+        void SaveRepliesToFile()
+        {
+            try
+            {
+                var lines = repliesDatabase.Values.Select(r => $"{r.Trigger}{Separator}{r.Answer}");
+
+                string tempPath = filePath + ".tmp";
+                File.WriteAllLines(tempPath, lines, Encoding.UTF8);
+                File.Move(tempPath, filePath, overwrite: true);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Error while writing file {filePath}: {ex.Message}");
             }
         }
 
@@ -80,25 +143,42 @@ namespace AnikiChatBot.Modules
         {
             try
             {
-                if (!File.Exists(FilePath))
+                if (!File.Exists(filePath))
                     return;
 
-                foreach (var line in File.ReadAllLines(FilePath))
+                int lines = 0, junk = 0;
+                foreach (var line in File.ReadAllLines(filePath))
                 {
                     if (string.IsNullOrWhiteSpace(line)) continue;
 
-                    var parts = line.Split(":::", 2);
-                    if (parts.Length == 2)
+                    var parts = line.Split(Separator, 2);
+                    if (parts.Length != 2) continue;
+
+                    lines++;
+                    string trigger = parts[0].Trim();
+                    string answer = parts[1].Trim();
+
+                    if (!ShouldLearn(trigger, answer))
                     {
-                        string trigger = parts[0].Trim();
-                        string answer = parts[1].Trim();
-                        repliesDatabase[trigger] = answer;
+                        junk++;
+                        continue;
                     }
+
+                    repliesDatabase[MatchKey(trigger)] = (trigger, answer);
+                }
+
+                int merged = lines - junk - repliesDatabase.Count;
+                if (junk > 0 || merged > 0)
+                {
+                    string backup = $"{Path.GetFileNameWithoutExtension(filePath)}.backup-{DateTime.Now:yyyyMMdd-HHmmss}.txt";
+                    File.Copy(filePath, Path.Combine(Path.GetDirectoryName(Path.GetFullPath(filePath))!, backup), overwrite: true);
+                    SaveRepliesToFile();
+                    Console.WriteLine($"[Repeater] База почищена: убрано мусора {junk}, объединено дублей {merged}. Копия старой базы — {backup}");
                 }
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"Error while reading file {FilePath}: {ex.Message}");
+                Console.Error.WriteLine($"Error while reading file {filePath}: {ex.Message}");
             }
         }
     }

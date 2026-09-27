@@ -25,6 +25,7 @@ namespace AnikiChatBot
             public string Name { get; set; } = "";
             public int Growth { get; set; }
             public int DuelWins { get; set; }
+            public int Messages { get; set; }
         }
 
         public record GameLeader(string Name, int Size);
@@ -35,14 +36,30 @@ namespace AnikiChatBot
             public Dictionary<long, ChatStats> Chats { get; set; } = new();
         }
 
+        private static readonly TimeSpan SaveInterval = TimeSpan.FromSeconds(30);
+
         private readonly object _lock = new object();
         private readonly string _filePath;
+        private readonly Timer _saveTimer;
         private State _state;
+        private bool _dirty;
 
         public StatsService(string filePath = FilePath)
         {
             _filePath = filePath;
             _state = Load() ?? new State { PeriodStart = DateTime.Now };
+            _saveTimer = new Timer(_ => Flush(), null, SaveInterval, SaveInterval);
+        }
+
+        public void Flush()
+        {
+            lock (_lock)
+            {
+                if (!_dirty)
+                    return;
+                Save();
+                _dirty = false;
+            }
         }
 
         public DateTime PeriodStart
@@ -60,6 +77,16 @@ namespace AnikiChatBot
 
         public void RecordDuelWin(long chatId, long userId, string name) =>
             Update(chatId, s => GetPlayer(s, userId, name).DuelWins++);
+
+        public void RecordMessage(long chatId, long userId, string name) =>
+            Update(chatId, s => GetPlayer(s, userId, name).Messages++);
+
+        public List<string> GetActiveNames(long chatId)
+        {
+            lock (_lock)
+                return _state.Chats.GetValueOrDefault(chatId)?.Players.Values
+                    .Where(p => p.Messages > 0).Select(p => p.Name).ToList() ?? [];
+        }
 
         private static WeekPlayer GetPlayer(ChatStats stats, long userId, string name)
         {
@@ -81,7 +108,7 @@ namespace AnikiChatBot
                     RepliesSent = s.RepliesSent,
                     LeftMembers = s.LeftMembers.ToList(),
                     Players = s.Players.ToDictionary(p => p.Key,
-                        p => new WeekPlayer { Name = p.Value.Name, Growth = p.Value.Growth, DuelWins = p.Value.DuelWins })
+                        p => new WeekPlayer { Name = p.Value.Name, Growth = p.Value.Growth, DuelWins = p.Value.DuelWins, Messages = p.Value.Messages })
                 };
             }
         }
@@ -102,6 +129,7 @@ namespace AnikiChatBot
             {
                 _state = new State { PeriodStart = now };
                 Save();
+                _dirty = false;
             }
         }
 
@@ -117,6 +145,16 @@ namespace AnikiChatBot
             sb.AppendLine(stats.LeftMembers.Count == 0
                 ? "Никто не покинул чат"
                 : $"Покинули чат ({stats.LeftMembers.Count}): {string.Join(", ", stats.LeftMembers)}");
+
+            var active = stats.Players.Values.Where(p => p.Messages > 0).OrderByDescending(p => p.Messages).Take(3).ToList();
+            if (active.Count > 0)
+            {
+                sb.AppendLine();
+                sb.AppendLine("💬 Самые активные");
+                string[] medals = ["🥇", "🥈", "🥉"];
+                for (int i = 0; i < active.Count; i++)
+                    sb.AppendLine($"{medals[i]} {active[i].Name} — {active[i].Messages} сообщ.");
+            }
 
             var game = new List<string>();
             if (leader != null)
@@ -156,7 +194,7 @@ namespace AnikiChatBot
                     _state.Chats[chatId] = stats = new ChatStats();
 
                 change(stats);
-                Save();
+                _dirty = true;
             }
         }
 

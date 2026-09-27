@@ -24,6 +24,7 @@ namespace AnikiChatBot.Modules
             new BotCommand { Command = "name", Description = "Дать пенису имя" },
             new BotCommand { Command = "duel", Description = "Вызвать на дуэль (можно ответом на сообщение)" },
             new BotCommand { Command = "penisday", Description = "Выбрать пенис дня" },
+            new BotCommand { Command = "give", Description = "Подарить сантиметры: /give 10 ответом на сообщение" },
             new BotCommand { Command = "achievements", Description = "Достижения" },
         ];
 
@@ -64,6 +65,7 @@ namespace AnikiChatBot.Modules
                 "name" => SetName(message.Chat.Id, user, parsed.Args),
                 "achievements" => Achievements(user),
                 "penisday" => PenisOfDay(message.Chat.Id),
+                "give" => Give(message.Chat.Id, user, message.ReplyToMessage?.From, parsed.Args),
                 _ => null
             };
 
@@ -374,6 +376,43 @@ namespace AnikiChatBot.Modules
             await bot.AnswerCallbackQuery(query.Id, cancellationToken: ct);
             await bot.EditMessageText(message.Chat.Id, message.MessageId, text, cancellationToken: ct);
             ScheduleDelete(bot, message.Chat.Id, AutoDeleteDelay, message.MessageId);
+        }
+
+        internal string Give(long chatId, User user, User? target, string args)
+        {
+            if (target == null || target.IsBot || target.Id == user.Id)
+                return "Ответь /give 10 на сообщение того, кому даришь.";
+
+            if (!int.TryParse(args.Trim(), out int amount) || amount <= 0)
+                return "Укажи, сколько подарить: /give 10";
+
+            return _store.Update(data =>
+            {
+                var chat = GetChat(data, chatId);
+
+                if (!chat.Players.TryGetValue(user.Id, out var giver))
+                    return "У тебя пока нет пениса. Напиши /grow";
+
+                if (!chat.Players.TryGetValue(target.Id, out var receiver))
+                    return $"У {DisplayName(target)} ещё нет пениса — пусть сначала напишет /grow.";
+
+                int canGive = giver.Size - PenisGame.MinSize;
+                if (amount > canGive)
+                    return canGive > 0
+                        ? $"Столько нет — можно подарить не больше {canGive} см."
+                        : "Дарить нечего — у тебя минимальный размер.";
+
+                giver.DisplayName = DisplayName(user);
+                receiver.DisplayName = DisplayName(target);
+                giver.Size -= amount;
+                receiver.Size += amount;
+
+                _stats?.RecordGrowth(chatId, giver.UserId, giver.DisplayName, -amount);
+                _stats?.RecordGrowth(chatId, receiver.UserId, receiver.DisplayName, amount);
+
+                return $"🎁 {giver.DisplayName} дарит {receiver.DisplayName} {amount} см.\n" +
+                       $"{giver.DisplayName}: {giver.Size} см · {receiver.DisplayName}: {receiver.Size} см";
+            });
         }
 
         internal string PlayDuel(long chatId, long challengerId, User acceptor)

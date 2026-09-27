@@ -37,6 +37,7 @@ namespace AnikiChatBot.Tests
             stats.RecordReply(-2);
             stats.RecordLeft(-1, "Вася");
 
+            stats.Flush();
             var restarted = new StatsService(_file);
             var chat1 = restarted.GetChat(-1);
 
@@ -83,6 +84,26 @@ namespace AnikiChatBot.Tests
             Assert.Contains("Никто не покинул чат", report);
             Assert.DoesNotContain("@", report);
             Assert.DoesNotContain("Игра", report);
+        }
+
+        [Fact]
+        public void Report_shows_top_3_active()
+        {
+            var stats = new StatsService(_file);
+            for (int i = 0; i < 5; i++) stats.RecordMessage(-1, 1, "Вася");
+            for (int i = 0; i < 9; i++) stats.RecordMessage(-1, 2, "Петя");
+            for (int i = 0; i < 2; i++) stats.RecordMessage(-1, 3, "Коля");
+            stats.RecordMessage(-1, 4, "Маша");
+
+            string report = StatsService.BuildReport(stats.GetChat(-1), DateTime.Now, DateTime.Now, null).Replace("\r\n", "\n");
+
+            Assert.Contains(
+                "💬 Самые активные\n" +
+                "🥇 Петя — 9 сообщ.\n" +
+                "🥈 Вася — 5 сообщ.\n" +
+                "🥉 Коля — 2 сообщ.",
+                report);
+            Assert.DoesNotContain("Маша", report);
         }
 
         [Fact]
