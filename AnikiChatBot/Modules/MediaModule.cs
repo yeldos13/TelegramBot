@@ -110,6 +110,7 @@ namespace AnikiChatBot.Modules
         {
             public required Message Message { get; init; }
             public required string Author { get; init; }
+            public long? AuthorId { get; init; }
             public required string UserText { get; init; }
             public int Remaining;
             public int Sent;
@@ -135,6 +136,7 @@ namespace AnikiChatBot.Modules
             {
                 Message = message,
                 Author = message.From != null ? PenisModule.DisplayName(message.From) : message.SenderChat?.Title ?? "Кто-то",
+                AuthorId = message.SenderChat == null ? message.From?.Id : null,
                 UserText = RemoveLinks(text, links.Select(l => l.Link)),
                 Remaining = links.Count
             };
@@ -165,9 +167,13 @@ namespace AnikiChatBot.Modules
             return Regex.Replace(text, @"[ \t]+", " ").Replace(" \n", "\n").Replace("\n ", "\n").Trim();
         }
 
-        public static string BuildCaption(string author, string url, string? userText)
+        public static string BuildCaption(string author, long? authorId, string url, string? userText)
         {
-            string caption = $"<b>{WebUtility.HtmlEncode(author)}</b>: <a href=\"{WebUtility.HtmlEncode(url)}\">ссылка</a>";
+            string name = WebUtility.HtmlEncode(author);
+            if (authorId != null)
+                name = $"<a href=\"tg://user?id={authorId}\">{name}</a>";
+
+            string caption = $"<b>{name}</b>: <a href=\"{WebUtility.HtmlEncode(url)}\">ссылка</a>";
 
             if (!string.IsNullOrWhiteSpace(userText))
             {
@@ -225,7 +231,7 @@ namespace AnikiChatBot.Modules
                 }
 
                 string? userText = Interlocked.Exchange(ref post.TextUsed, 1) == 0 ? post.UserText : null;
-                string caption = BuildCaption(post.Author, uri.ToString(), userText);
+                string caption = BuildCaption(post.Author, post.AuthorId, uri.ToString(), userText);
 
                 await SendAsync(bot, message, ready, caption, timeout.Token);
                 Interlocked.Increment(ref post.Sent);

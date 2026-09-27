@@ -78,21 +78,46 @@ namespace AnikiChatBot.Modules
             return true;
         }
 
-        public async Task<bool> HandleUnmuteCommand(ITelegramBotClient bot, Message message, CancellationToken ct)
+        public async Task<bool> HandleModerationCommand(ITelegramBotClient bot, Message message, CancellationToken ct)
         {
-            if (PenisModule.ParseCommand(message.Text, _botUsername) is not { Command: "unmute" } command)
+            if (PenisModule.ParseCommand(message.Text, _botUsername) is not { Command: "unmute" or "mutelist" } command)
                 return false;
-
-            long chatId = message.Chat.Id;
 
             if (string.IsNullOrEmpty(_ownerUsername)
                 || !string.Equals(message.From?.Username, _ownerUsername, StringComparison.OrdinalIgnoreCase))
             {
-                await bot.SendMessage(chatId, "Снимать мут через бота может только владелец.",
+                await bot.SendMessage(message.Chat.Id, "Эта команда только для владельца бота.",
                     replyParameters: message.MessageId, cancellationToken: ct);
                 return true;
             }
 
+            if (command.Command == "mutelist")
+            {
+                await bot.SendMessage(message.Chat.Id, BuildMuteList(_mutes.List(message.Chat.Id)),
+                    replyParameters: message.MessageId, cancellationToken: ct);
+                return true;
+            }
+
+            await UnmuteAsync(bot, message, command.Args, ct);
+            return true;
+        }
+
+        public static string BuildMuteList(IReadOnlyList<MuteStore.MutedUser> muted)
+        {
+            if (muted.Count == 0)
+                return "🔊 Бот сейчас никого не держит в муте.";
+
+            var lines = muted
+                .OrderBy(m => m.At)
+                .Select((m, i) => $"{i + 1}. {m.Name}{(m.Username != null ? $" (@{m.Username})" : "")} — {m.Reason}, {m.At:dd.MM HH:mm}");
+
+            return $"🔇 В муте ({muted.Count}):\n" + string.Join("\n", lines) +
+                   "\n\nСнять: /unmute @username или /unmute ответом на сообщение";
+        }
+
+        private async Task UnmuteAsync(ITelegramBotClient bot, Message message, string args, CancellationToken ct)
+        {
+            long chatId = message.Chat.Id;
             long? userId = null;
             string? name = null;
 
@@ -101,7 +126,7 @@ namespace AnikiChatBot.Modules
                 userId = replied.Id;
                 name = PenisModule.DisplayName(replied);
             }
-            else if (command.Args.StartsWith('@') && _mutes.FindByUsername(chatId, command.Args) is { } found)
+            else if (args.StartsWith('@') && _mutes.FindByUsername(chatId, args) is { } found)
             {
                 userId = found.UserId;
                 name = found.Name;
@@ -111,9 +136,9 @@ namespace AnikiChatBot.Modules
             {
                 await bot.SendMessage(chatId,
                     "Ответь /unmute на сообщение человека или напиши /unmute @username " +
-                    "(по юзернейму — только тех, кого замьютил бот).",
+                    "(по юзернейму — только тех, кого замьютил бот, список: /mutelist).",
                     replyParameters: message.MessageId, cancellationToken: ct);
-                return true;
+                return;
             }
 
             var chat = await bot.GetChat(chatId, ct);
@@ -121,7 +146,6 @@ namespace AnikiChatBot.Modules
             _mutes.Remove(chatId, userId.Value);
 
             await bot.SendMessage(chatId, $"🔊 {name} размучен(а).", replyParameters: message.MessageId, cancellationToken: ct);
-            return true;
         }
 
         public static string? GetKey(Message message)

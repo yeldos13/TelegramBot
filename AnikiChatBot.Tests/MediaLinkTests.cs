@@ -59,18 +59,26 @@ namespace AnikiChatBot.Tests
         public void Caption_has_author_link_and_escapes_html()
         {
             Assert.Equal(
-                "<b>Вася</b>: <a href=\"https://x.com/a/status/1\">ссылка</a>",
-                MediaModule.BuildCaption("Вася", "https://x.com/a/status/1", null));
+                "<b><a href=\"tg://user?id=42\">Вася</a></b>: <a href=\"https://x.com/a/status/1\">ссылка</a>",
+                MediaModule.BuildCaption("Вася", 42, "https://x.com/a/status/1", null));
 
             Assert.Equal(
-                "<b>Вася &lt;3</b>: <a href=\"https://x.com/a?b=1&amp;c=2\">ссылка</a>\nсмотри &amp; угорай",
-                MediaModule.BuildCaption("Вася <3", "https://x.com/a?b=1&c=2", "смотри & угорай"));
+                "<b><a href=\"tg://user?id=42\">Вася &lt;3</a></b>: <a href=\"https://x.com/a?b=1&amp;c=2\">ссылка</a>\nсмотри &amp; угорай",
+                MediaModule.BuildCaption("Вася <3", 42, "https://x.com/a?b=1&c=2", "смотри & угорай"));
+        }
+
+        [Fact]
+        public void Caption_without_author_id_has_plain_name()
+        {
+            Assert.Equal(
+                "<b>Мой канал</b>: <a href=\"https://x.com/a\">ссылка</a>",
+                MediaModule.BuildCaption("Мой канал", null, "https://x.com/a", null));
         }
 
         [Fact]
         public void Caption_trims_long_text()
         {
-            string caption = MediaModule.BuildCaption("Вася", "https://x.com/a", new string('а', 2000));
+            string caption = MediaModule.BuildCaption("Вася", 42, "https://x.com/a", new string('а', 2000));
             Assert.True(caption.Length < 1024);
             Assert.EndsWith("…", caption);
         }

@@ -214,7 +214,7 @@ namespace AnikiChatBot
 
             if (await HandledByAsync("Spam", () => _spamModule.HandleMessage(bot, message, ct))
                 || await HandledByAsync("Newcomer", () => _newcomerModule.HandleMessage(bot, message, ct))
-                || await HandledByAsync("Unmute", () => _spamModule.HandleUnmuteCommand(bot, message, ct))
+                || await HandledByAsync("Moderation", () => _spamModule.HandleModerationCommand(bot, message, ct))
                 || await HandledByAsync("Help", () => _helpModule.HandleCommand(bot, message, ct))
                 || await HandledByAsync("Fun", () => _funModule.HandleCommand(bot, message, ct))
                 || await HandledByAsync("Penis", () => _penisModule.HandleCommand(bot, message, ct)))
@@ -228,16 +228,26 @@ namespace AnikiChatBot
         private async Task HandleOwnerCommandAsync(ITelegramBotClient bot, Message message, CancellationToken ct)
         {
             string command = message.Text?.Split(' ', '@')[0].ToLowerInvariant() ?? "";
+            string args = message.Text?.Split(' ', 2).ElementAtOrDefault(1)?.Trim() ?? "";
+
+            const string commands =
+                "/status — состояние бота\n" +
+                "/log — последние 30 строк лога (/log 80 — больше)\n" +
+                "В чате: /mutelist — кого замьютил бот, /unmute — снять мут";
 
             string reply = command switch
             {
-                "/start" => "Привет! Сюда буду присылать уведомления об ошибках бота.\n/status — состояние бота",
+                "/start" => "Привет! Сюда буду присылать уведомления об ошибках бота.\n\n" + commands,
                 "/status" => await BuildStatusAsync(ct),
-                _ => "Команды:\n/status — состояние бота"
+                "/log" => FileLog.ReadTail(Path.Combine(AppContext.BaseDirectory, "logs"), ParseLogLines(args)),
+                _ => "Команды:\n" + commands
             };
 
             await bot.SendMessage(message.Chat.Id, reply, cancellationToken: ct);
         }
+
+        public static int ParseLogLines(string args) =>
+            int.TryParse(args, out int n) && n > 0 ? Math.Min(n, 200) : 30;
 
         private async Task<string> BuildStatusAsync(CancellationToken ct)
         {

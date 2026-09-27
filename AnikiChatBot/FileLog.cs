@@ -79,6 +79,39 @@ namespace AnikiChatBot
             }
         }
 
+        public static string ReadTail(string directory, int lineCount, int maxChars = 4000)
+        {
+            var file = Directory.Exists(directory)
+                ? new DirectoryInfo(directory).GetFiles("bot-*.log").OrderBy(f => f.LastWriteTime).LastOrDefault()
+                : null;
+
+            if (file == null)
+                return "Лог пуст.";
+
+            List<string> lines;
+            lock (FileLock)
+            {
+                using var stream = new FileStream(file.FullName, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                using var reader = new StreamReader(stream, Encoding.UTF8);
+                lines = reader.ReadToEnd().Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(l => l.TrimEnd('\r'))
+                    .TakeLast(lineCount)
+                    .ToList();
+            }
+
+            var result = new List<string>();
+            int length = 0;
+            for (int i = lines.Count - 1; i >= 0; i--)
+            {
+                if (length + lines[i].Length + 1 > maxChars)
+                    break;
+                result.Insert(0, lines[i]);
+                length += lines[i].Length + 1;
+            }
+
+            return result.Count == 0 ? "Лог пуст." : string.Join("\n", result);
+        }
+
         private static void DeleteOldLogs(string directory)
         {
             foreach (var file in Directory.GetFiles(directory, "bot-*.log"))
