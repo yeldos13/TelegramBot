@@ -28,15 +28,14 @@ if ($svc -and $svc.Status -ne "Stopped") { Stop-Service $ServiceName; Start-Slee
 dotnet publish $Project -c Release -r win-x64 --self-contained false -o $InstallDir
 if ($LASTEXITCODE -ne 0) { throw "Ошибка публикации." }
 
-Step "Защита appsettings.json и cookies.txt"
-foreach ($secret in "appsettings.json", "cookies.txt") {
-    $path = Join-Path $InstallDir $secret
-    if (Test-Path $path) {
-        icacls $path /inheritance:r /grant:r "*S-1-5-18:F" "*S-1-5-32-544:F" | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw "Не удалось ограничить доступ к $secret." }
-    }
-}
+Step "Защита appsettings.json и папки private"
+icacls (Join-Path $InstallDir "appsettings.json") /inheritance:r /grant:r "*S-1-5-18:F" "*S-1-5-32-544:F" | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "Не удалось ограничить доступ к appsettings.json." }
+
+$private = Join-Path $InstallDir "private"
+New-Item -ItemType Directory -Force $private | Out-Null
+icacls $private /inheritance:r /grant:r "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" /T | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "Не удалось ограничить доступ к папке private." }
 
 Step "Перенос данных из $DataFrom"
 foreach ($file in "replies.txt", "rates_cache.json", "owner_id.txt", "stats.json", "penis.json", "muted.json", "newcomers.json") {

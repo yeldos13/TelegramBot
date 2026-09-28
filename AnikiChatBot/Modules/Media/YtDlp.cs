@@ -24,8 +24,21 @@ namespace AnikiChatBot.Modules.Media
 
         public async Task<List<MediaItem>> ExtractAsync(string url, string workDir, CancellationToken ct)
         {
-            var info = await RunAsync(["-J", "--ignore-no-formats-error", url], ct);
-            if (info.ExitCode != 0 || string.IsNullOrWhiteSpace(info.StdOut))
+            bool useCookies = false;
+            var info = await RunAsync(["-J", "--ignore-no-formats-error", url], ct, useCookies: false);
+
+            if (Failed(info) && HasCookies)
+            {
+                Console.WriteLine($"[yt-dlp] {url}: без аккаунта не вышло ({LastLine(info.StdErr)}), пробую с cookies");
+                var withCookies = await RunAsync(["-J", "--ignore-no-formats-error", url], ct, useCookies: true);
+                if (!Failed(withCookies))
+                {
+                    info = withCookies;
+                    useCookies = true;
+                }
+            }
+
+            if (Failed(info))
                 throw new InvalidOperationException($"yt-dlp: {LastLine(info.StdErr)}");
 
             string infoPath = Path.Combine(workDir, "info.json");
@@ -71,7 +84,7 @@ namespace AnikiChatBot.Modules.Media
                     "--ignore-errors",
                     "--ignore-no-formats-error",
                     "-o", Path.Combine(workDir, "%(playlist_index|1)s.%(ext)s")
-                ], ct);
+                ], ct, useCookies);
 
                 foreach (var item in items.Where(x => x.Kind == MediaKind.Video))
                 {
@@ -163,18 +176,21 @@ namespace AnikiChatBot.Modules.Media
             return best.GetStringOrNull("url");
         }
 
+        private bool HasCookies => !string.IsNullOrEmpty(_cookiesFile) && File.Exists(_cookiesFile);
+
+        private static bool Failed((int ExitCode, string StdOut, string StdErr) result) =>
+            result.ExitCode != 0 || string.IsNullOrWhiteSpace(result.StdOut);
+
         private Task<(int ExitCode, string StdOut, string StdErr)> RunAsync(
-            IEnumerable<string> args, CancellationToken ct, bool addCommonArgs = true)
+            IEnumerable<string> args, CancellationToken ct, bool useCookies = false, bool addCommonArgs = true)
         {
             var allArgs = new List<string>();
 
             if (addCommonArgs)
-            {
                 allArgs.AddRange(["--no-update", "--no-progress", "--ffmpeg-location", _ffmpegPath]);
 
-                if (!string.IsNullOrEmpty(_cookiesFile) && File.Exists(_cookiesFile))
-                    allArgs.AddRange(["--cookies", _cookiesFile]);
-            }
+            if (useCookies && HasCookies)
+                allArgs.AddRange(["--cookies", _cookiesFile!]);
 
             allArgs.AddRange(args);
             return ProcessRunner.RunAsync(_exePath, allArgs, ct);
