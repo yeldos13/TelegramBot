@@ -111,6 +111,8 @@ namespace AnikiChatBot
                 notifier: _notifier,
                 stats: _stats);
 
+            var me = await WaitForTelegramAsync(() => botClient.GetMe(ct), ct);
+
             await botClient.DropPendingUpdates(ct);
 
             botClient.StartReceiving(
@@ -120,7 +122,6 @@ namespace AnikiChatBot
                 cancellationToken: ct
             );
 
-            var me = await botClient.GetMe(ct);
             _membersModule.SetBotId(me.Id);
             _penisModule.SetBotUsername(me.Username);
             _helpModule.SetBotUsername(me.Username);
@@ -145,6 +146,31 @@ namespace AnikiChatBot
             }
 
             await Task.WhenAll(UpdateYtDlpLoopAsync(ct), WeeklyReportLoopAsync(botClient, ct));
+        }
+
+        public static async Task<T> WaitForTelegramAsync<T>(Func<Task<T>> request, CancellationToken ct,
+            Func<TimeSpan, CancellationToken, Task>? delay = null)
+        {
+            delay ??= Task.Delay;
+            var wait = TimeSpan.FromSeconds(5);
+            var started = DateTime.Now;
+
+            while (true)
+            {
+                try
+                {
+                    var result = await request();
+                    if (DateTime.Now - started > TimeSpan.FromSeconds(1))
+                        Console.WriteLine($"[Startup] Связь с Telegram появилась через {(DateTime.Now - started).TotalSeconds:0} с");
+                    return result;
+                }
+                catch (RequestException ex) when (ex is not ApiRequestException)
+                {
+                    Console.Error.WriteLine($"[Startup] Нет связи с Telegram ({ex.InnerException?.Message ?? ex.Message}), повтор через {wait.TotalSeconds:0} с");
+                    await delay(wait, ct);
+                    wait = TimeSpan.FromSeconds(Math.Min(wait.TotalSeconds * 2, 60));
+                }
+            }
         }
 
         private async Task WeeklyReportLoopAsync(ITelegramBotClient bot, CancellationToken ct)
