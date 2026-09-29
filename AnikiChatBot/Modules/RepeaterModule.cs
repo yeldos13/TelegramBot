@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using Telegram.Bot;
 using Telegram.Bot.Types;
+using Telegram.Bot.Types.Enums;
 
 namespace AnikiChatBot.Modules
 {
@@ -16,6 +17,8 @@ namespace AnikiChatBot.Modules
 
         static readonly TimeSpan SaveInterval = TimeSpan.FromSeconds(30);
         static readonly Regex LinkRegex = new(@"(https?://|www\.|t\.me/)\S+", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        static readonly Regex MentionRegex = new(@"(?<!\w)@[A-Za-z0-9_]{4,32}", RegexOptions.Compiled);
         static readonly Regex SpacesRegex = new(@"\s+", RegexOptions.Compiled);
 
         readonly ConcurrentDictionary<string, (string Trigger, string Answer)> repliesDatabase = new();
@@ -47,13 +50,16 @@ namespace AnikiChatBot.Modules
 
                 bool replyToBot = replyToMessage.From?.IsBot == true;
 
-                if (!replyToBot && ShouldLearn(triggerText, answerText))
+                if (!replyToBot && !HasMention(replyToMessage) && ShouldLearn(triggerText, answerText))
                 {
                     repliesDatabase[MatchKey(triggerText)] = (triggerText, answerText);
                     MarkDirty();
                     return;
                 }
             }
+
+            if (HasMention(message))
+                return;
 
             if (repliesDatabase.TryGetValue(MatchKey(message.Text), out var saved))
             {
@@ -94,11 +100,20 @@ namespace AnikiChatBot.Modules
                 && !IsJunk(trigger, answer);
         }
 
+        public static bool HasMention(Message message)
+        {
+            if ((message.Entities ?? []).Any(e => e.Type is MessageEntityType.Mention or MessageEntityType.TextMention))
+                return true;
+
+            return MentionRegex.IsMatch(message.Text ?? "");
+        }
+
         public static bool IsJunk(string trigger, string answer)
         {
             return trigger.StartsWith('/')
                 || answer.StartsWith('/')
                 || LinkRegex.IsMatch(trigger)
+                || MentionRegex.IsMatch(trigger)
                 || trigger.Length > MaxTriggerLength
                 || answer.Length > MaxAnswerLength
                 || trigger.Contains(Separator)

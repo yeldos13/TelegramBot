@@ -40,9 +40,26 @@ namespace AnikiChatBot.Tests
         [InlineData("канал t.me/something", "ок", false)]
         [InlineData("привет", "Привет!", false)]
         [InlineData("a:::b", "c", false)]
+        [InlineData("@vasya", "чё надо", false)]
+        [InlineData("@vasya иди сюда", "не", false)]
+        [InlineData("пиши на test@mail.ru", "ок", true)]
         public void Decides_what_to_learn(string trigger, string answer, bool expected)
         {
             Assert.Equal(expected, RepeaterModule.ShouldLearn(trigger, answer));
+        }
+
+        [Fact]
+        public void Detects_mentions_in_messages()
+        {
+            Assert.True(RepeaterModule.HasMention(new Telegram.Bot.Types.Message { Text = "@vasya привет" }));
+            Assert.False(RepeaterModule.HasMention(new Telegram.Bot.Types.Message { Text = "привет" }));
+
+            var textMention = new Telegram.Bot.Types.Message
+            {
+                Text = "Вася привет",
+                Entities = [new Telegram.Bot.Types.MessageEntity { Type = Telegram.Bot.Types.Enums.MessageEntityType.TextMention, Offset = 0, Length = 4 }]
+            };
+            Assert.True(RepeaterModule.HasMention(textMention));
         }
 
         [Fact]
