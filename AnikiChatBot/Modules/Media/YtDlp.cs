@@ -122,6 +122,27 @@ namespace AnikiChatBot.Modules.Media
             return pages.ToString();
         }
 
+        public enum CookieStatus { NotConfigured, Valid, Invalid, Unknown }
+
+        private const string CookieCheckUrl = "https://www.instagram.com/p/BQ0eAlwhDrw/";
+
+        public async Task<CookieStatus> CheckInstagramCookiesAsync(CancellationToken ct)
+        {
+            if (!HasCookies)
+                return CookieStatus.NotConfigured;
+
+            string[] args = ["--ignore-no-formats-error", "--simulate", "--print", "id", CookieCheckUrl];
+
+            var withCookies = await RunAsync(args, ct, useCookies: true);
+            bool invalidWarning = withCookies.StdErr.Contains("no longer valid", StringComparison.OrdinalIgnoreCase);
+
+            if (!Failed(withCookies) && !invalidWarning)
+                return CookieStatus.Valid;
+
+            var anonymous = await RunAsync(args, ct, useCookies: false);
+            return Failed(anonymous) ? CookieStatus.Unknown : CookieStatus.Invalid;
+        }
+
         public async Task<string> GetVersionAsync(CancellationToken ct)
         {
             try

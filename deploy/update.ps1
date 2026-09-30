@@ -30,7 +30,8 @@ icacls (Join-Path $InstallDir "appsettings.json") /inheritance:r /grant:r "*S-1-
 
 $private = Join-Path $InstallDir "private"
 New-Item -ItemType Directory -Force $private | Out-Null
-icacls $private /inheritance:r /grant:r "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" /T | Out-Null
+icacls $private /inheritance:r /grant:r "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" | Out-Null
+if (Get-ChildItem $private -Force) { icacls "$private\*" /reset /T | Out-Null }
 
 Write-Host "==> Запуск службы" -ForegroundColor Cyan
 Start-Service $ServiceName

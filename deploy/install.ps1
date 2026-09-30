@@ -34,8 +34,9 @@ if ($LASTEXITCODE -ne 0) { throw "Не удалось ограничить до�
 
 $private = Join-Path $InstallDir "private"
 New-Item -ItemType Directory -Force $private | Out-Null
-icacls $private /inheritance:r /grant:r "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" /T | Out-Null
+icacls $private /inheritance:r /grant:r "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "Не удалось ограничить доступ к папке private." }
+if (Get-ChildItem $private -Force) { icacls "$private\*" /reset /T | Out-Null }
 
 Step "Перенос данных из $DataFrom"
 foreach ($file in "replies.txt", "rates_cache.json", "owner_id.txt", "stats.json", "penis.json", "muted.json", "newcomers.json") {

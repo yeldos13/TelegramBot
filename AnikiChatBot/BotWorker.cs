@@ -146,7 +146,7 @@ namespace AnikiChatBot
                 _notifier.Notify("restart-done", "✅ Перезапущен по команде.");
             }
 
-            await Task.WhenAll(UpdateYtDlpLoopAsync(ct), WeeklyReportLoopAsync(botClient, ct));
+            await Task.WhenAll(UpdateYtDlpLoopAsync(ct), WeeklyReportLoopAsync(botClient, ct), CookieCheckLoopAsync(ct));
         }
 
         public static async Task<T> WaitForTelegramAsync<T>(Func<Task<T>> request, CancellationToken ct,
@@ -195,6 +195,16 @@ namespace AnikiChatBot
                 }
 
                 await Task.Delay(TimeSpan.FromMinutes(10), ct);
+            }
+        }
+
+        private async Task CookieCheckLoopAsync(CancellationToken ct)
+        {
+            await Task.Delay(TimeSpan.FromMinutes(5), ct);
+            while (true)
+            {
+                await RunModuleAsync("Cookies", () => _mediaModule.CheckInstagramCookiesAsync(ct));
+                await Task.Delay(TimeSpan.FromHours(24), ct);
             }
         }
 
@@ -337,6 +347,15 @@ namespace AnikiChatBot
 
             lines.Add($"Недельный отчёт: {StatsService.NextReportTime(_stats.PeriodStart):dd.MM HH:mm}");
             lines.Add($"yt-dlp: {await _mediaModule.GetYtDlpVersionAsync(ct)}");
+            lines.Add(_mediaModule.LastCookieCheck is { } check
+                ? $"Cookies Instagram: {check.Status switch
+                {
+                    Modules.Media.YtDlp.CookieStatus.Valid => "✅ работают",
+                    Modules.Media.YtDlp.CookieStatus.Invalid => "❌ сессия истекла",
+                    Modules.Media.YtDlp.CookieStatus.NotConfigured => "не настроены",
+                    _ => "не удалось проверить"
+                }} (проверено {check.At:dd.MM HH:mm})"
+                : "Cookies Instagram: ещё не проверялись");
 
             return string.Join("\n", lines);
         }

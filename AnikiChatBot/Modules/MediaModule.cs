@@ -40,6 +40,33 @@ namespace AnikiChatBot.Modules
 
         public Task<string> GetYtDlpVersionAsync(CancellationToken ct) => _ytDlp.GetVersionAsync(ct);
 
+        public (YtDlp.CookieStatus Status, DateTime At)? LastCookieCheck { get; private set; }
+
+        public async Task CheckInstagramCookiesAsync(CancellationToken ct)
+        {
+            await _slots.WaitAsync(ct);
+            YtDlp.CookieStatus status;
+            try
+            {
+                status = await _ytDlp.CheckInstagramCookiesAsync(ct);
+            }
+            finally
+            {
+                _slots.Release();
+            }
+
+            LastCookieCheck = (status, DateTime.Now);
+            Console.WriteLine($"[Media] Проверка cookies Instagram: {status}");
+
+            if (status == YtDlp.CookieStatus.Invalid)
+            {
+                _notifier?.Notify("ig-cookies",
+                    "🍪 Сессия Instagram в cookies больше не работает: посты 18+ и закрытые перестанут скачиваться.\n" +
+                    "Выгрузите cookies заново: инкогнито → вход в запасной аккаунт → «Get cookies.txt LOCALLY» → " +
+                    "закрыть окно, не нажимая «Выйти». Файл положите в C:\\Bots\\AnikiChatBot\\private\\cookies.txt.");
+            }
+        }
+
         public MediaModule(string ytDlpPath, string ffmpegPath, string? cookiesFile,
             OwnerNotifier? notifier = null, StatsService? stats = null)
         {
