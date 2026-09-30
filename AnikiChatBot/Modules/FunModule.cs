@@ -44,7 +44,8 @@ namespace AnikiChatBot.Modules
             if (reply == null)
                 return false;
 
-            await bot.SendMessage(message.Chat.Id, reply, replyParameters: message.MessageId, cancellationToken: ct);
+            var sent = await bot.SendMessage(message.Chat.Id, reply, replyParameters: message.MessageId, cancellationToken: ct);
+            Cleanup.DeleteCommandLater(bot, message, sent);
             return true;
         }
 

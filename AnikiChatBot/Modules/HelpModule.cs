@@ -51,7 +51,8 @@ namespace AnikiChatBot.Modules
             if (BotCommands.Parse(message.Text, _botUsername)?.Command != "help")
                 return false;
 
-            await bot.SendMessage(message.Chat.Id, Text, replyParameters: message.MessageId, cancellationToken: ct);
+            var sent = await bot.SendMessage(message.Chat.Id, Text, replyParameters: message.MessageId, cancellationToken: ct);
+            Cleanup.DeleteCommandLater(bot, message, sent);
             return true;
         }
     }

@@ -13,7 +13,7 @@ namespace AnikiChatBot.Modules
         private const int MaxNameLength = 64;
         private static readonly TimeSpan DuelLifetime = TimeSpan.FromMinutes(10);
 
-        private static readonly TimeSpan AutoDeleteDelay = TimeSpan.FromSeconds(15);
+        private static readonly TimeSpan AutoDeleteDelay = Cleanup.CommandDelay;
         private static readonly HashSet<string> KeptCommands = ["top", "penisday"];
 
         public static readonly BotCommand[] Commands =
@@ -80,21 +80,8 @@ namespace AnikiChatBot.Modules
             return true;
         }
 
-        private static void ScheduleDelete(ITelegramBotClient bot, long chatId, TimeSpan delay, params int[] messageIds)
-        {
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    await Task.Delay(delay);
-                    await bot.DeleteMessages(chatId, messageIds);
-                }
-                catch (Exception ex)
-                {
-                    Console.Error.WriteLine($"[Penis] Не удалось удалить сообщения: {ex.Message}");
-                }
-            });
-        }
+        private static void ScheduleDelete(ITelegramBotClient bot, long chatId, TimeSpan delay, params int[] messageIds) =>
+            Cleanup.DeleteLater(bot, chatId, delay, messageIds);
 
         private static string DisplayName(User user) => Users.DisplayName(user);
 

@@ -95,15 +95,17 @@ namespace AnikiChatBot.Modules
             if (string.IsNullOrEmpty(_ownerUsername)
                 || !string.Equals(message.From?.Username, _ownerUsername, StringComparison.OrdinalIgnoreCase))
             {
-                await bot.SendMessage(message.Chat.Id, "Эта команда только для владельца бота.",
+                var refusal = await bot.SendMessage(message.Chat.Id, "Эта команда только для владельца бота.",
                     replyParameters: message.MessageId, cancellationToken: ct);
+                Cleanup.DeleteCommandLater(bot, message, refusal);
                 return true;
             }
 
             if (command.Command == "mutelist")
             {
-                await bot.SendMessage(message.Chat.Id, BuildMuteList(_mutes.List(message.Chat.Id)),
+                var list = await bot.SendMessage(message.Chat.Id, BuildMuteList(_mutes.List(message.Chat.Id)),
                     replyParameters: message.MessageId, cancellationToken: ct);
+                Cleanup.DeleteCommandLater(bot, message, list);
                 return true;
             }
 
@@ -143,10 +145,11 @@ namespace AnikiChatBot.Modules
 
             if (userId == null)
             {
-                await bot.SendMessage(chatId,
+                var hint = await bot.SendMessage(chatId,
                     "Ответь /unmute на сообщение человека или напиши /unmute @username " +
                     "(по юзернейму — только тех, кого замьютил бот, список: /mutelist).",
                     replyParameters: message.MessageId, cancellationToken: ct);
+                Cleanup.DeleteCommandLater(bot, message, hint);
                 return;
             }
 

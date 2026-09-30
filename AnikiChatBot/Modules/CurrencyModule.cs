@@ -138,7 +138,8 @@ namespace AnikiChatBot.Modules
                 ? "Не удалось получить курсы, попробуй позже."
                 : BuildRatesTable(rates, crypto, _lastRatesUpdate.ToLocalTime());
 
-            await bot.SendMessage(message.Chat.Id, text, replyParameters: message.MessageId, cancellationToken: ct);
+            var sent = await bot.SendMessage(message.Chat.Id, text, replyParameters: message.MessageId, cancellationToken: ct);
+            Cleanup.DeleteCommandLater(bot, message, sent);
         }
 
         public static string BuildRatesTable(Dictionary<string, double> rates, Dictionary<string, double>? crypto, DateTime updated)

@@ -28,6 +28,30 @@ namespace AnikiChatBot
         }
     }
 
+    public static class Cleanup
+    {
+        public static readonly TimeSpan CommandDelay = TimeSpan.FromSeconds(30);
+
+        public static void DeleteCommandLater(Telegram.Bot.ITelegramBotClient bot, Message command, Message reply) =>
+            DeleteLater(bot, command.Chat.Id, CommandDelay, command.MessageId, reply.MessageId);
+
+        public static void DeleteLater(Telegram.Bot.ITelegramBotClient bot, long chatId, TimeSpan delay, params int[] messageIds)
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(delay);
+                    await Telegram.Bot.TelegramBotClientExtensions.DeleteMessages(bot, chatId, messageIds);
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"[Cleanup] Не удалось удалить сообщения: {ex.Message}");
+                }
+            });
+        }
+    }
+
     public static class Users
     {
         public static string DisplayName(User user)
