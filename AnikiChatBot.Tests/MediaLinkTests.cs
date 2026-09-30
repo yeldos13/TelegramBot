@@ -93,6 +93,28 @@ namespace AnikiChatBot.Tests
             Assert.Equal(expected, MediaModule.RemoveLinks(text, ["https://x.com/a/status/1"]));
         }
 
+        [Theory]
+        [InlineData("soy", true)]
+        [InlineData("SOY", true)]
+        [InlineData("смотри soy", true)]
+        [InlineData("soy!", true)]
+        [InlineData("soybean", false)]
+        [InlineData("смотри какая жесть", false)]
+        [InlineData("", false)]
+        public void Detects_quiet_mode(string textWithoutLinks, bool expected)
+        {
+            Assert.Equal(expected, MediaModule.IsQuiet(textWithoutLinks));
+        }
+
+        [Fact]
+        public void Soy_inside_link_does_not_trigger_quiet_mode()
+        {
+            string text = "https://www.youtube.com/shorts/soy12345678";
+            string withoutLinks = MediaModule.RemoveLinks(text, ["https://www.youtube.com/shorts/soy12345678"]);
+
+            Assert.False(MediaModule.IsQuiet(withoutLinks));
+        }
+
         [Fact]
         public void Takes_at_most_three_distinct_links()
         {

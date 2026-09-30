@@ -112,6 +112,8 @@ namespace AnikiChatBot.Modules
             public required string Author { get; init; }
             public long? AuthorId { get; init; }
             public required string UserText { get; init; }
+
+            public bool Quiet { get; init; }
             public int Remaining;
             public int Sent;
             public int TextUsed;
@@ -132,12 +134,15 @@ namespace AnikiChatBot.Modules
             if (links.Count == 0)
                 return Task.CompletedTask;
 
+            string userText = RemoveLinks(text, links.Select(l => l.Link));
+
             var post = new Post
             {
                 Message = message,
                 Author = message.From != null ? Users.DisplayName(message.From) : message.SenderChat?.Title ?? "Кто-то",
                 AuthorId = message.SenderChat == null ? message.From?.Id : null,
-                UserText = RemoveLinks(text, links.Select(l => l.Link)),
+                UserText = userText,
+                Quiet = IsQuiet(userText),
                 Remaining = links.Count
             };
 
@@ -146,6 +151,10 @@ namespace AnikiChatBot.Modules
 
             return Task.CompletedTask;
         }
+
+        private static readonly Regex QuietRegex = new(@"(?<!\w)soy(?!\w)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        public static bool IsQuiet(string textWithoutLinks) => QuietRegex.IsMatch(textWithoutLinks);
 
         public static IEnumerable<Uri> ExtractLinks(string text) =>
             ExtractLinkStrings(text).Select(link => new Uri(link));
@@ -231,9 +240,9 @@ namespace AnikiChatBot.Modules
                 }
 
                 string? userText = Interlocked.Exchange(ref post.TextUsed, 1) == 0 ? post.UserText : null;
-                string caption = BuildCaption(post.Author, post.AuthorId, uri.ToString(), userText);
+                string? caption = post.Quiet ? null : BuildCaption(post.Author, post.AuthorId, uri.ToString(), userText);
 
-                await SendAsync(bot, message, ready, caption, timeout.Token);
+                await SendAsync(bot, message, ready, caption, replyToOriginal: post.Quiet, timeout.Token);
                 Interlocked.Increment(ref post.Sent);
                 Interlocked.Increment(ref _sentCount);
                 _stats?.RecordMedia(message.Chat.Id);
@@ -257,7 +266,7 @@ namespace AnikiChatBot.Modules
                 _slots.Release();
                 try { Directory.Delete(workDir, recursive: true); } catch { }
 
-                if (Interlocked.Decrement(ref post.Remaining) == 0 && post.Sent > 0)
+                if (Interlocked.Decrement(ref post.Remaining) == 0 && post.Sent > 0 && !post.Quiet)
                 {
                     try
                     {
@@ -313,11 +322,14 @@ namespace AnikiChatBot.Modules
             return hasOversized;
         }
 
-        private static async Task SendAsync(ITelegramBotClient bot, Message message, List<MediaItem> items, string caption, CancellationToken ct)
+        private static async Task SendAsync(ITelegramBotClient bot, Message message, List<MediaItem> items, string? caption,
+            bool replyToOriginal, CancellationToken ct)
         {
-            ReplyParameters? reply = message.ReplyToMessage is { } original
-                ? new ReplyParameters { MessageId = original.MessageId, AllowSendingWithoutReply = true }
-                : null;
+            ReplyParameters? reply = replyToOriginal
+                ? new ReplyParameters { MessageId = message.MessageId, AllowSendingWithoutReply = true }
+                : message.ReplyToMessage is { } original
+                    ? new ReplyParameters { MessageId = original.MessageId, AllowSendingWithoutReply = true }
+                    : null;
             int? threadId = message.IsTopicMessage ? message.MessageThreadId : null;
 
             string? pendingCaption = caption;
