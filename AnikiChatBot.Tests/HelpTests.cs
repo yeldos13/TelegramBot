@@ -7,7 +7,7 @@ namespace AnikiChatBot.Tests
         [Fact]
         public void Help_mentions_every_command()
         {
-            foreach (var command in PenisModule.Commands.Concat(FunModule.Commands))
+            foreach (var command in PenisModule.Commands.Concat(FunModule.Commands).Concat(CurrencyModule.Commands))
                 Assert.Contains($"/{command.Command}", HelpModule.Text);
         }
 

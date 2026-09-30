@@ -26,14 +26,15 @@ namespace AnikiChatBot.Modules
             @"(?:" + Num + @"\s*(?:тенге|тг|kzt|₸)(?!\w))|" +
             @"(?:" + Num + @"\s*(?:грив[еньеяидлз]*|грн|uah|₴)(?!\w))|" +
             @"(?:" + Num + @"\s*(?:бел\.?\s*руб(?:л[яьей]+|ь)?|бр|byn)(?!\w))|" +
-            @"(?:(?:c\$)\s*" + Num + @"|" + Num + @"\s*(?:c\$|cad|канадск[аиоыхьйе]*\s*доллар[аов]*)(?!\w))",
+            @"(?:(?:c\$)\s*" + Num + @"|" + Num + @"\s*(?:c\$|cad|канадск[аиоыхьйе]*\s*доллар[аов]*)(?!\w))|" +
+            @"(?:₿\s*" + Num + @"|" + Num + @"\s*(?:биткоин[аов]*|₿)(?!\w))",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         private static readonly string[] NamedGroupCurrencies =
-            ["", "RUB", "USD", "USD", "EUR", "EUR", "KZT", "UAH", "BYN", "CAD", "CAD"];
+            ["", "RUB", "USD", "USD", "EUR", "EUR", "KZT", "UAH", "BYN", "CAD", "CAD", "BTC", "BTC"];
 
         private static readonly Regex GenericCurrencyRegex = new Regex(
-            Num + @"\s*([a-zA-Z]{3})\b",
+            Num + @"\s*([a-zA-Z]{3,4})\b",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         private static readonly Regex MultiplierRegex = new Regex(
@@ -56,6 +57,13 @@ namespace AnikiChatBot.Modules
         public DateTime LastRatesUpdateUtc => _lastRatesUpdate;
 
         private readonly StatsService? _stats;
+        private readonly CryptoRates _crypto;
+        private string _botUsername = "";
+
+        public static readonly BotCommand[] Commands =
+        [
+            new BotCommand { Command = "rates", Description = "Курсы валют и криптовалют на сегодня" },
+        ];
 
         public CurrencyModule(HttpClient httpClient, string exchangeApiKey, OwnerNotifier? notifier = null, StatsService? stats = null)
         {
@@ -63,12 +71,21 @@ namespace AnikiChatBot.Modules
             _exchangeApiKey = exchangeApiKey;
             _notifier = notifier;
             _stats = stats;
+            _crypto = new CryptoRates(httpClient);
             LoadCache();
         }
+
+        public void SetBotUsername(string? username) => _botUsername = username ?? "";
 
         public async Task HandleCurrencyCommand(ITelegramBotClient bot, Update update, CancellationToken ct)
         {
             if (update.Message?.Text is not { } text || string.IsNullOrEmpty(text)) return;
+
+            if (BotCommands.Parse(text, _botUsername)?.Command == "rates")
+            {
+                await SendRatesAsync(bot, update.Message, ct);
+                return;
+            }
 
             var amounts = ParseAmounts(text);
             if (amounts.Count == 0) return;
@@ -76,10 +93,13 @@ namespace AnikiChatBot.Modules
             var rates = await GetExchangeRatesAsync();
             if (rates == null) return;
 
+            var crypto = amounts.Any(a => CryptoRates.IsCrypto(a.Currency)) ? await _crypto.GetRubPricesAsync() : null;
+
             var blocks = amounts
-                .Where(a => a.Currency == "RUB" || rates.ContainsKey(a.Currency))
+                .Select(a => (a.Amount, a.Currency, Rub: ToRub(a.Amount, a.Currency, rates, crypto)))
+                .Where(a => a.Rub != null)
                 .Take(MaxAmountsPerMessage)
-                .Select(a => BuildConversion(a.Amount, a.Currency, rates))
+                .Select(a => BuildConversion(a.Amount, a.Currency, a.Rub!.Value, rates))
                 .ToList();
 
             if (blocks.Count == 0) return;
@@ -95,16 +115,78 @@ namespace AnikiChatBot.Modules
             _stats?.RecordConversion(update.Message.Chat.Id);
         }
 
-        private static string BuildConversion(double amount, string sourceCurrency, Dictionary<string, double> rates)
-        {
-            double rubAmount = sourceCurrency == "RUB" ? amount : amount / rates[sourceCurrency];
+        public static string FormatAmount(double value) =>
+            Math.Abs(value) >= 1 || value == 0 ? value.ToString("N2") : value.ToString("0.########");
 
+        public static double? ToRub(double amount, string currency, Dictionary<string, double> rates, Dictionary<string, double>? crypto)
+        {
+            if (currency == "RUB")
+                return amount;
+            if (crypto != null && crypto.TryGetValue(currency, out double coinRub))
+                return amount * coinRub;
+            if (!CryptoRates.IsCrypto(currency) && rates.TryGetValue(currency, out double rate) && rate > 0)
+                return amount / rate;
+            return null;
+        }
+
+        private async Task SendRatesAsync(ITelegramBotClient bot, Message message, CancellationToken ct)
+        {
+            var rates = await GetExchangeRatesAsync();
+            var crypto = await _crypto.GetRubPricesAsync();
+
+            string text = rates == null
+                ? "Не удалось получить курсы, попробуй позже."
+                : BuildRatesTable(rates, crypto, _lastRatesUpdate.ToLocalTime());
+
+            await bot.SendMessage(message.Chat.Id, text, replyParameters: message.MessageId, cancellationToken: ct);
+        }
+
+        public static string BuildRatesTable(Dictionary<string, double> rates, Dictionary<string, double>? crypto, DateTime updated)
+        {
+            double Rub(string code) => 1 / rates[code];
+            double Kzt(string code) => rates["KZT"] / rates[code];
+
+            var sb = new StringBuilder($"💱 Курсы на {updated:dd.MM HH:mm}\n\n");
+
+            foreach (var code in new[] { "USD", "EUR", "CAD", "BYN", "UAH" })
+            {
+                if (!rates.ContainsKey(code))
+                    continue;
+
+                string flag = GetCurrencyTargetInfo(code).Split(' ')[0];
+                string line = $"{flag} 1 {code} = {Rub(code):N2} ₽";
+                if (rates.ContainsKey("KZT"))
+                    line += $" · {Kzt(code):N2} ₸";
+                sb.AppendLine(line);
+            }
+
+            if (rates.TryGetValue("KZT", out double kztPerRub))
+            {
+                sb.AppendLine($"🇷🇺 1 RUB = {kztPerRub:N2} ₸");
+                sb.AppendLine($"🇰🇿 1000 KZT = {1000 / kztPerRub:N2} ₽");
+            }
+
+            if (crypto is { Count: > 0 } && rates.TryGetValue("USD", out double usdPerRub))
+            {
+                sb.AppendLine();
+                foreach (var code in new[] { "BTC", "ETH", "TON", "SOL", "USDT" })
+                {
+                    if (crypto.TryGetValue(code, out double rub))
+                        sb.AppendLine($"🪙 1 {code} = {rub * usdPerRub:N2} $ · {rub:N2} ₽");
+                }
+            }
+
+            return sb.ToString().TrimEnd();
+        }
+
+        private static string BuildConversion(double amount, string sourceCurrency, double rubAmount, Dictionary<string, double> rates)
+        {
             var currencies = PopularCurrencies.ToList();
             if (!currencies.Contains(sourceCurrency))
                 currencies.Insert(0, sourceCurrency);
 
             var sb = new StringBuilder();
-            sb.AppendLine($"*{amount:N2} {GetCurrencyTargetInfo(sourceCurrency)}:*");
+            sb.AppendLine($"*{FormatAmount(amount)} {GetCurrencyTargetInfo(sourceCurrency)}:*");
             sb.AppendLine();
 
             foreach (var currency in currencies)
@@ -122,7 +204,7 @@ namespace AnikiChatBot.Modules
                     targetAmount = rubAmount * rate;
                 }
 
-                sb.AppendLine($"{GetCurrencyTargetInfo(currency)} *{currency}:* {targetAmount:N2}");
+                sb.AppendLine($"{GetCurrencyTargetInfo(currency)} *{currency}:* {FormatAmount(targetAmount)}");
             }
 
             return sb.ToString().TrimEnd();
@@ -237,6 +319,7 @@ namespace AnikiChatBot.Modules
                 "UAH" => "🇺🇦 ₴",
                 "BYN" => "🇧🇾 Б",
                 "CAD" => "🇨🇦 C$",
+                _ when CryptoRates.IsCrypto(code) => $"🪙 {code}",
                 _ => $"💰 {code}"
             };
         }

@@ -127,9 +127,10 @@ namespace AnikiChatBot
             _helpModule.SetBotUsername(me.Username);
             _spamModule.SetBotUsername(me.Username);
             _funModule.SetBotUsername(me.Username);
+            _currencyModule.SetBotUsername(me.Username);
 
             await RunModuleAsync("Commands", () => botClient.SetMyCommands(
-                [HelpModule.Command, .. PenisModule.Commands, .. FunModule.Commands],
+                [HelpModule.Command, .. PenisModule.Commands, .. FunModule.Commands, .. CurrencyModule.Commands],
                 scope: new Telegram.Bot.Types.BotCommandScopeAllGroupChats(), cancellationToken: ct));
             Console.WriteLine($"Bot @{me.Username} started. Allowed chats count: {_allowedChatIds.Count}, replies: {_repeaterModule.Count}");
 
