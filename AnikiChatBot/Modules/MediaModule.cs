@@ -173,8 +173,6 @@ namespace AnikiChatBot.Modules
                 Remaining = links.Count
             };
 
-            _ = ReactAsync(bot, message, "👀");
-
             foreach (var (_, uri, source) in links)
                 _ = Task.Run(() => ProcessLinkAsync(bot, post, uri, source!, ct), ct);
 
@@ -295,38 +293,17 @@ namespace AnikiChatBot.Modules
                 _slots.Release();
                 try { Directory.Delete(workDir, recursive: true); } catch { }
 
-                if (Interlocked.Decrement(ref post.Remaining) == 0)
+                if (Interlocked.Decrement(ref post.Remaining) == 0 && post.Sent > 0 && !post.Quiet)
                 {
-                    if (post.Sent == 0)
-                        await ReactAsync(bot, message, "🤷");
-                    else if (post.Quiet)
-                        await ReactAsync(bot, message, null);
-                    else
+                    try
                     {
-                        try
-                        {
-                            await bot.DeleteMessage(message.Chat.Id, message.MessageId, CancellationToken.None);
-                        }
-                        catch (Exception ex)
-                        {
-                            Console.Error.WriteLine($"[Media] Не удалось удалить сообщение со ссылкой (нужно право «Удаление сообщений»): {ex.Message}");
-                            await ReactAsync(bot, message, null);
-                        }
+                        await bot.DeleteMessage(message.Chat.Id, message.MessageId, CancellationToken.None);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.Error.WriteLine($"[Media] Не удалось удалить сообщение со ссылкой (нужно право «Удаление сообщений»): {ex.Message}");
                     }
                 }
-            }
-        }
-
-        private static async Task ReactAsync(ITelegramBotClient bot, Message message, string? emoji)
-        {
-            try
-            {
-                await bot.SetMessageReaction(message.Chat.Id, message.MessageId,
-                    emoji == null ? [] : [new ReactionTypeEmoji { Emoji = emoji }]);
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"[Media] Не удалось поставить реакцию: {ex.Message}");
             }
         }
 
