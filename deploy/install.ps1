@@ -39,7 +39,7 @@ if ($LASTEXITCODE -ne 0) { throw "Не удалось ограничить до�
 if (Get-ChildItem $private -Force) { icacls "$private\*" /reset /T | Out-Null }
 
 Step "Перенос данных из $DataFrom"
-foreach ($file in "replies.txt", "rates_cache.json", "owner_id.txt", "stats.json", "pig.json", "morning_rates.json", "muted.json", "newcomers.json") {
+foreach ($file in "replies.txt", "rates_cache.json", "owner_id.txt", "stats.json", "pig.json", "morning_rates.json", "steam_seen.json", "muted.json", "newcomers.json") {
     $source = Join-Path $DataFrom $file
     $target = Join-Path $InstallDir $file
     if (Test-Path $target) {

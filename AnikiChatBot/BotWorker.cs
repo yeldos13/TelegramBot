@@ -28,6 +28,7 @@ namespace AnikiChatBot
         private readonly MuteStore _mutes = new MuteStore();
         private readonly PigModule _pigModule;
         private readonly HelpModule _helpModule = new HelpModule();
+        private readonly SteamGiveawaysModule _steamModule = new SteamGiveawaysModule();
         private SpamModule _spamModule = null!;
         private NewcomerLinksModule _newcomerModule = null!;
         private readonly FunModule _funModule;
@@ -148,16 +149,16 @@ namespace AnikiChatBot
             }
 
             await Task.WhenAll(UpdateYtDlpLoopAsync(ct), WeeklyReportLoopAsync(botClient, ct), CookieCheckLoopAsync(ct),
-                DailyPostsLoopAsync(botClient, ct));
+                DailyPostsLoopAsync(botClient, ct), SteamGiveawaysLoopAsync(botClient, ct));
         }
 
-        private static readonly TimeSpan MorningRatesWindow = TimeSpan.FromHours(3);
+        public static readonly TimeSpan MorningRatesWindow = TimeSpan.FromHours(3);
 
         public static TimeOnly ParseTime(string? value, TimeOnly fallback) =>
             TimeOnly.TryParse(value, CultureInfo.InvariantCulture, out var time) ? time : fallback;
 
-        public static bool IsMorningRatesTime(TimeOnly now, TimeOnly start) =>
-            now >= start && now - start < MorningRatesWindow;
+        public static bool IsInWindow(TimeOnly now, TimeOnly start, TimeSpan window) =>
+            now >= start && now - start < window;
 
         private async Task DailyPostsLoopAsync(ITelegramBotClient bot, CancellationToken ct)
         {
@@ -170,7 +171,7 @@ namespace AnikiChatBot
                 var today = DateOnly.FromDateTime(now);
                 var time = TimeOnly.FromDateTime(now);
 
-                if (IsMorningRatesTime(time, ratesTime) && _currencyModule.IsMorningPostDue(today))
+                if (IsInWindow(time, ratesTime, MorningRatesWindow) && _currencyModule.IsMorningPostDue(today))
                 {
                     await RunModuleAsync("MorningRates", async () =>
                     {
@@ -242,6 +243,23 @@ namespace AnikiChatBot
                 }
 
                 await Task.Delay(TimeSpan.FromMinutes(10), ct);
+            }
+        }
+
+        private async Task SteamGiveawaysLoopAsync(ITelegramBotClient bot, CancellationToken ct)
+        {
+            await Task.Delay(TimeSpan.FromMinutes(1), ct);
+            while (true)
+            {
+                await RunModuleAsync("Steam", async () =>
+                {
+                    foreach (var app in await _steamModule.FindNewGiveawaysAsync(ct))
+                    {
+                        Console.WriteLine($"[Steam] Раздача: {app.Name} ({app.Link})");
+                        await _steamModule.AnnounceAsync(bot, _allowedChatIds, app, _config["OwnerUsername"], ct);
+                    }
+                });
+                await Task.Delay(TimeSpan.FromHours(1), ct);
             }
         }
 

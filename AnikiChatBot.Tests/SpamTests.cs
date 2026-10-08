@@ -175,5 +175,43 @@ namespace AnikiChatBot.Tests
             Assert.True(module.IsNewcomer(-1, 5, DateTime.UtcNow));
             Assert.False(module.IsNewcomer(-1, 6, DateTime.UtcNow));
         }
+
+        [Fact]
+        public void Fifth_join_within_five_minutes_is_a_raid()
+        {
+            var module = new NewcomerLinksModule(new OwnerNotifier("owner"), _newcomersFile);
+
+            for (int i = 1; i <= 4; i++)
+                Assert.Null(module.RegisterRecentJoin(-1, "Чат", i, $"Бот{i}", Start.AddMinutes(i)));
+
+            string? alert = module.RegisterRecentJoin(-1, "Чат", 5, "Бот5 (@bot5)", Start.AddMinutes(4.5));
+
+            Assert.NotNull(alert);
+            Assert.StartsWith("🚨 Наплыв в «Чат»: за 5 минут зашли 5 человек:", alert);
+            Assert.Contains("• Бот1", alert);
+            Assert.Contains("• Бот5 (@bot5)", alert);
+        }
+
+        [Fact]
+        public void Slow_joins_are_not_a_raid()
+        {
+            var module = new NewcomerLinksModule(new OwnerNotifier("owner"), _newcomersFile);
+
+            for (int i = 1; i <= 10; i++)
+                Assert.Null(module.RegisterRecentJoin(-1, "Чат", i, $"Человек{i}", Start.AddMinutes(i * 2)));
+        }
+
+        [Fact]
+        public void Raid_counts_each_chat_and_user_separately()
+        {
+            var module = new NewcomerLinksModule(new OwnerNotifier("owner"), _newcomersFile);
+
+            for (int i = 1; i <= 4; i++)
+                module.RegisterRecentJoin(-1, "Чат", i, $"Бот{i}", Start);
+
+            Assert.Null(module.RegisterRecentJoin(-2, "Другой", 5, "Бот5", Start));
+            Assert.Null(module.RegisterRecentJoin(-1, "Чат", 4, "Бот4", Start.AddSeconds(10)));
+            Assert.NotNull(module.RegisterRecentJoin(-1, "Чат", 6, "Бот6", Start.AddSeconds(20)));
+        }
     }
 }

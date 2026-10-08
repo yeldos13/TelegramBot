@@ -122,14 +122,14 @@ namespace AnikiChatBot.Tests
         [InlineData(23, 0, false)]
         public void Morning_rates_are_posted_only_in_the_morning(int hour, int minute, bool expected)
         {
-            Assert.Equal(expected, BotWorker.IsMorningRatesTime(new TimeOnly(hour, minute), new TimeOnly(9, 0)));
+            Assert.Equal(expected, BotWorker.IsInWindow(new TimeOnly(hour, minute), new TimeOnly(9, 0), BotWorker.MorningRatesWindow));
         }
 
         [Fact]
         public void Morning_rates_window_does_not_wrap_past_midnight()
         {
-            Assert.True(BotWorker.IsMorningRatesTime(new TimeOnly(23, 0), new TimeOnly(22, 0)));
-            Assert.False(BotWorker.IsMorningRatesTime(new TimeOnly(0, 30), new TimeOnly(22, 0)));
+            Assert.True(BotWorker.IsInWindow(new TimeOnly(23, 0), new TimeOnly(22, 0), BotWorker.MorningRatesWindow));
+            Assert.False(BotWorker.IsInWindow(new TimeOnly(0, 30), new TimeOnly(22, 0), BotWorker.MorningRatesWindow));
         }
 
         [Fact]

@@ -53,7 +53,7 @@ namespace AnikiChatBot.Modules
             if (update.Message is { NewChatMembers: { Length: > 0 } members } message)
             {
                 foreach (var member in members.Where(m => !m.IsBot))
-                    RecordJoin(message.Chat.Id, member.Id, now);
+                    OnJoin(message.Chat, member, now);
             }
 
             if (update.ChatMember is { } change
@@ -61,7 +61,42 @@ namespace AnikiChatBot.Modules
                 && change.NewChatMember.Status is ChatMemberStatus.Member or ChatMemberStatus.Restricted
                 && !change.NewChatMember.User.IsBot)
             {
-                RecordJoin(change.Chat.Id, change.NewChatMember.User.Id, now);
+                OnJoin(change.Chat, change.NewChatMember.User, now);
+            }
+        }
+
+        public const int RaidThreshold = 5;
+        public static readonly TimeSpan RaidWindow = TimeSpan.FromMinutes(5);
+
+        private record RecentJoin(long ChatId, long UserId, string Name, DateTime At);
+
+        private readonly List<RecentJoin> _recentJoins = new();
+
+        private void OnJoin(Chat chat, User user, DateTime nowUtc)
+        {
+            RecordJoin(chat.Id, user.Id, nowUtc);
+
+            if (RegisterRecentJoin(chat.Id, chat.Title, user.Id, Users.NameWithUsername(user), nowUtc) is { } alert)
+            {
+                Console.WriteLine($"[Newcomer] Наплыв новичков в чате {chat.Id}");
+                _notifier.Notify($"raid:{chat.Id}", alert);
+            }
+        }
+
+        internal string? RegisterRecentJoin(long chatId, string? chatTitle, long userId, string name, DateTime nowUtc)
+        {
+            lock (_lock)
+            {
+                _recentJoins.RemoveAll(j => nowUtc - j.At > RaidWindow || j.ChatId == chatId && j.UserId == userId);
+                _recentJoins.Add(new RecentJoin(chatId, userId, name, nowUtc));
+
+                var inChat = _recentJoins.Where(j => j.ChatId == chatId).ToList();
+                if (inChat.Count < RaidThreshold)
+                    return null;
+
+                return $"🚨 Наплыв в «{chatTitle ?? chatId.ToString()}»: за {RaidWindow.TotalMinutes:0} минут зашли {inChat.Count} человек:\n" +
+                       string.Join("\n", inChat.Select(j => "• " + j.Name)) +
+                       "\n\nСсылки от новичков я и так удаляю. Если это боты — проверь чат.";
             }
         }
 
