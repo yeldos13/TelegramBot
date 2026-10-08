@@ -23,9 +23,9 @@ namespace AnikiChatBot
         private HashSet<long> _allowedChatIds = new();
         private OwnerNotifier _notifier = null!;
         private readonly StatsService _stats = new StatsService();
-        private readonly Modules.Penis.PenisStore _penisStore = new Modules.Penis.PenisStore();
+        private readonly Modules.Pig.PigStore _pigStore = new Modules.Pig.PigStore();
         private readonly MuteStore _mutes = new MuteStore();
-        private readonly PenisModule _penisModule;
+        private readonly PigModule _pigModule;
         private readonly HelpModule _helpModule = new HelpModule();
         private SpamModule _spamModule = null!;
         private NewcomerLinksModule _newcomerModule = null!;
@@ -38,14 +38,14 @@ namespace AnikiChatBot
         public BotWorker(IConfiguration config)
         {
             _config = config;
-            _penisModule = new PenisModule(_penisStore, stats: _stats);
+            _pigModule = new PigModule(_pigStore, stats: _stats);
             _funModule = new FunModule(_stats, mutes: _mutes);
         }
 
         private void FlushAll()
         {
             _stats.Flush();
-            _penisStore.Flush();
+            _pigStore.Flush();
             _repeaterModule?.Flush();
         }
 
@@ -123,14 +123,14 @@ namespace AnikiChatBot
             );
 
             _membersModule.SetBotId(me.Id);
-            _penisModule.SetBotUsername(me.Username);
+            _pigModule.SetBotUsername(me.Username);
             _helpModule.SetBotUsername(me.Username);
             _spamModule.SetBotUsername(me.Username);
             _funModule.SetBotUsername(me.Username);
             _currencyModule.SetBotUsername(me.Username);
 
             await RunModuleAsync("Commands", () => botClient.SetMyCommands(
-                [HelpModule.Command, .. PenisModule.Commands, .. FunModule.Commands, .. CurrencyModule.Commands],
+                [HelpModule.Command, .. PigModule.Commands, .. FunModule.Commands, .. CurrencyModule.Commands],
                 scope: new Telegram.Bot.Types.BotCommandScopeAllGroupChats(), cancellationToken: ct));
             Console.WriteLine($"Bot @{me.Username} started. Allowed chats count: {_allowedChatIds.Count}, replies: {_repeaterModule.Count}");
 
@@ -186,7 +186,7 @@ namespace AnikiChatBot
                     foreach (long chatId in _allowedChatIds)
                     {
                         string report = StatsService.BuildReport(_stats.GetChat(chatId), periodStart, now,
-                            _config["OwnerUsername"], _penisModule.GetLeader(chatId));
+                            _config["OwnerUsername"], _pigModule.GetLeader(chatId));
                         await RunModuleAsync("WeeklyReport", () => bot.SendMessage(chatId, report, cancellationToken: ct));
                     }
 
@@ -232,7 +232,7 @@ namespace AnikiChatBot
             if (update.CallbackQuery is { Message: { } callbackMessage } query)
             {
                 if (_allowedChatIds.Contains(callbackMessage.Chat.Id))
-                    await RunModuleAsync("Penis", () => _penisModule.HandleCallback(bot, query, ct));
+                    await RunModuleAsync("Pig", () => _pigModule.HandleCallback(bot, query, ct));
                 return;
             }
 
@@ -270,7 +270,7 @@ namespace AnikiChatBot
             if (await HandledByAsync("Moderation", () => _spamModule.HandleModerationCommand(bot, message, ct))
                 || await HandledByAsync("Help", () => _helpModule.HandleCommand(bot, message, ct))
                 || await HandledByAsync("Fun", () => _funModule.HandleCommand(bot, message, ct))
-                || await HandledByAsync("Penis", () => _penisModule.HandleCommand(bot, message, ct)))
+                || await HandledByAsync("Pig", () => _pigModule.HandleCommand(bot, message, ct)))
                 return;
 
             await RunModuleAsync("Currency", () => _currencyModule.HandleCurrencyCommand(bot, update, ct));

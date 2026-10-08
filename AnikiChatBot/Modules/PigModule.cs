@@ -1,4 +1,4 @@
-using AnikiChatBot.Modules.Penis;
+using AnikiChatBot.Modules.Pig;
 using System.Collections.Concurrent;
 using System.Text;
 using Telegram.Bot;
@@ -7,37 +7,37 @@ using Telegram.Bot.Types.ReplyMarkups;
 
 namespace AnikiChatBot.Modules
 {
-    public class PenisModule
+    public class PigModule
     {
         private const int TopSize = 50;
         private const int MaxNameLength = 64;
         private static readonly TimeSpan DuelLifetime = TimeSpan.FromMinutes(10);
 
         private static readonly TimeSpan AutoDeleteDelay = Cleanup.CommandDelay;
-        private static readonly HashSet<string> KeptCommands = ["top", "penisday"];
+        private static readonly HashSet<string> KeptCommands = ["top", "pigday"];
 
         public static readonly BotCommand[] Commands =
         [
-            new BotCommand { Command = "grow", Description = "Вырастить пенис (раз в день)" },
-            new BotCommand { Command = "my", Description = "Мой пенис" },
-            new BotCommand { Command = "top", Description = "Топ пенисов чата" },
-            new BotCommand { Command = "name", Description = "Дать пенису имя" },
+            new BotCommand { Command = "grow", Description = "Откормить свинью (раз в день)" },
+            new BotCommand { Command = "my", Description = "Моя свинья" },
+            new BotCommand { Command = "top", Description = "Топ свиней чата" },
+            new BotCommand { Command = "name", Description = "Дать свинье имя" },
             new BotCommand { Command = "duel", Description = "Вызвать на дуэль (можно ответом на сообщение)" },
-            new BotCommand { Command = "penisday", Description = "Выбрать пенис дня" },
-            new BotCommand { Command = "give", Description = "Подарить сантиметры: /give 10 ответом на сообщение" },
+            new BotCommand { Command = "pigday", Description = "Выбрать свинью дня" },
+            new BotCommand { Command = "give", Description = "Подарить тонны: /give 10 ответом на сообщение" },
             new BotCommand { Command = "achievements", Description = "Достижения" },
         ];
 
         private record PendingDuel(string Id, long ChatId, long ChallengerId, long? TargetId, DateTime CreatedAt);
 
-        private readonly PenisStore _store;
+        private readonly PigStore _store;
         private readonly Random _random;
         private readonly ConcurrentDictionary<string, PendingDuel> _duels = new();
         private string _botUsername = "";
 
         private readonly StatsService? _stats;
 
-        public PenisModule(PenisStore store, Random? random = null, StatsService? stats = null)
+        public PigModule(PigStore store, Random? random = null, StatsService? stats = null)
         {
             _store = store;
             _random = random ?? Random.Shared;
@@ -64,7 +64,7 @@ namespace AnikiChatBot.Modules
                 "top" => Top(message.Chat.Id),
                 "name" => SetName(message.Chat.Id, user, parsed.Args),
                 "achievements" => Achievements(user),
-                "penisday" => PenisOfDay(message.Chat.Id),
+                "pigday" => PigOfDay(message.Chat.Id),
                 "give" => Give(message.Chat.Id, user, message.ReplyToMessage?.From, parsed.Args),
                 _ => null
             };
@@ -101,41 +101,41 @@ namespace AnikiChatBot.Modules
                     {
                         UserId = user.Id,
                         DisplayName = name,
-                        Size = PenisGame.RollInitialSize(_random),
+                        Size = PigGame.RollInitialSize(_random),
                         LastGrow = today,
                         Streak = 1
                     };
                     chat.Players[user.Id] = player;
 
                     int chats = data.Chats.Values.Count(c => c.Players.ContainsKey(user.Id));
-                    var chatAchievements = Award(data, user.Id, PenisAchievements.CheckChats(chats));
+                    var chatAchievements = Award(data, user.Id, PigAchievements.CheckChats(chats));
 
-                    return $"🍆 {name}, у тебя появился пенис! Его размер — {player.Size} см.\n" +
-                           "Расти его командой /grow раз в день." + FormatAchievements(chatAchievements);
+                    return $"🐷 {name}, у тебя появилась свинья! Она весит {player.Size} т.\n" +
+                           "Откармливай её командой /grow раз в день." + FormatAchievements(chatAchievements);
                 }
 
                 player.DisplayName = name;
 
-                if (!PenisGame.CanGrow(player, today))
+                if (!PigGame.CanGrow(player, today))
                 {
-                    var wait = PenisGame.TimeUntilNextGrow(now);
-                    return $"{name}, ты уже рос сегодня ({player.Size} см). Следующая попытка через {FormatWait(wait)}.";
+                    var wait = PigGame.TimeUntilNextGrow(now);
+                    return $"{name}, ты уже кормил свинью сегодня ({player.Size} т). Следующая попытка через {FormatWait(wait)}.";
                 }
 
                 int oldSize = player.Size;
-                PenisGame.ApplyGrow(player, today, PenisGame.RollDelta(_random));
+                PigGame.ApplyGrow(player, today, PigGame.RollDelta(_random));
                 int change = player.Size - oldSize;
 
                 string result = change switch
                 {
-                    > 0 => $"🍆 {name}, твой пенис вырос на {change} см.",
-                    < 0 => $"🥀 {name}, твой пенис уменьшился на {-change} см.",
-                    _ => $"😐 {name}, твой пенис не изменился."
+                    > 0 => $"🐷 {name}, твоя свинья поправилась на {change} т.",
+                    < 0 => $"🥓 {name}, твоя свинья похудела на {-change} т.",
+                    _ => $"😐 {name}, вес твоей свиньи не изменился."
                 };
 
                 _stats?.RecordGrowth(chatId, user.Id, name, change);
-                var earned = Award(data, user.Id, PenisAchievements.CheckAfterGrow(player, now));
-                return $"{result}\nТеперь он {player.Size} см.\nСледующая попытка — завтра." + FormatAchievements(earned);
+                var earned = Award(data, user.Id, PigAchievements.CheckAfterGrow(player, now));
+                return $"{result}\nТеперь она весит {player.Size} т.\nСледующая попытка — завтра." + FormatAchievements(earned);
             });
         }
 
@@ -146,27 +146,27 @@ namespace AnikiChatBot.Modules
             return _store.Read(data =>
             {
                 if (!data.Chats.TryGetValue(chatId, out var chat) || !chat.Players.TryGetValue(user.Id, out var player))
-                    return "У тебя пока нет пениса. Напиши /grow";
+                    return "У тебя пока нет свиньи. Напиши /grow";
 
                 var ranked = chat.Players.Values.OrderByDescending(p => p.Size).ToList();
                 int place = ranked.FindIndex(p => p.UserId == user.Id) + 1;
                 int achievements = data.Achievements.GetValueOrDefault(user.Id)?.Count ?? 0;
 
                 var sb = new StringBuilder();
-                sb.AppendLine($"🍆 {DisplayName(user)}");
+                sb.AppendLine($"🐷 {DisplayName(user)}");
                 sb.AppendLine($"Имя: {player.Name ?? "без имени (/name)"}");
-                sb.AppendLine($"Размер: {player.Size} см");
+                sb.AppendLine($"Вес: {player.Size} т");
                 sb.AppendLine($"Место в чате: {place} из {ranked.Count}");
                 sb.AppendLine($"Дней подряд: {player.Streak}");
 
                 if (player.History.Count > 0)
-                    sb.AppendLine($"Последнее изменение: {FormatDelta(player.History[^1].Delta)} см");
+                    sb.AppendLine($"Последнее изменение: {FormatDelta(player.History[^1].Delta)} т");
 
                 sb.AppendLine($"Дуэли: {player.DuelWins} побед, {player.DuelLosses} поражений");
-                sb.AppendLine($"Достижений: {achievements} из {PenisAchievements.All.Count}");
-                sb.Append(PenisGame.CanGrow(player, today)
+                sb.AppendLine($"Достижений: {achievements} из {PigAchievements.All.Count}");
+                sb.Append(PigGame.CanGrow(player, today)
                     ? "Сегодня ещё можно /grow"
-                    : $"Следующий /grow через {FormatWait(PenisGame.TimeUntilNextGrow(DateTime.Now))}");
+                    : $"Следующий /grow через {FormatWait(PigGame.TimeUntilNextGrow(DateTime.Now))}");
 
                 return sb.ToString();
             });
@@ -177,9 +177,9 @@ namespace AnikiChatBot.Modules
             return _store.Read(data =>
             {
                 if (!data.Chats.TryGetValue(chatId, out var chat) || chat.Players.Count == 0)
-                    return "Пока никто не растил. Напиши /grow";
+                    return "Пока никто не завёл свинью. Напиши /grow";
 
-                var sb = new StringBuilder("🏆 Топ пенисов чата:\n\n");
+                var sb = new StringBuilder("🏆 Топ свиней чата:\n\n");
                 int place = 0;
 
                 foreach (var player in chat.Players.Values.OrderByDescending(p => p.Size).Take(TopSize))
@@ -187,7 +187,7 @@ namespace AnikiChatBot.Modules
                     place++;
                     string medal = place switch { 1 => "🥇", 2 => "🥈", 3 => "🥉", _ => $"{place}." };
                     string name = player.Name != null ? $" «{player.Name}»" : "";
-                    sb.AppendLine($"{medal} {player.DisplayName}{name} — {player.Size} см");
+                    sb.AppendLine($"{medal} {player.DisplayName}{name} — {player.Size} т");
                 }
 
                 return sb.ToString().TrimEnd();
@@ -201,19 +201,19 @@ namespace AnikiChatBot.Modules
             return _store.Update(data =>
             {
                 if (!data.Chats.TryGetValue(chatId, out var chat) || !chat.Players.TryGetValue(user.Id, out var player))
-                    return "У тебя пока нет пениса. Напиши /grow";
+                    return "У тебя пока нет свиньи. Напиши /grow";
 
                 if (newName.Length == 0)
                     return player.Name == null
-                        ? "У твоего пениса нет имени. Задай его: /name Имя"
-                        : $"Твой пенис зовут «{player.Name}». Сменить: /name Новое имя";
+                        ? "У твоей свиньи нет имени. Задай его: /name Имя"
+                        : $"Твою свинью зовут «{player.Name}». Сменить: /name Новое имя";
 
                 if (newName.Length > MaxNameLength)
                     return $"Слишком длинное имя — максимум {MaxNameLength} символа.";
 
                 player.Name = newName;
-                var earned = Award(data, user.Id, [PenisAchievements.Named]);
-                return $"🏷️ Теперь твой пенис зовут «{newName}»." + FormatAchievements(earned);
+                var earned = Award(data, user.Id, [PigAchievements.Named]);
+                return $"🏷️ Теперь твою свинью зовут «{newName}»." + FormatAchievements(earned);
             });
         }
 
@@ -222,16 +222,16 @@ namespace AnikiChatBot.Modules
             return _store.Read(data =>
             {
                 var owned = data.Achievements.GetValueOrDefault(user.Id) ?? [];
-                var sb = new StringBuilder($"🏆 Достижения {DisplayName(user)}: {owned.Count} из {PenisAchievements.All.Count}\n\n");
+                var sb = new StringBuilder($"🏆 Достижения {DisplayName(user)}: {owned.Count} из {PigAchievements.All.Count}\n\n");
 
-                foreach (var a in PenisAchievements.All)
+                foreach (var a in PigAchievements.All)
                     sb.AppendLine($"{(owned.Contains(a.Id) ? "✅" : "▫️")} {a.Title} — {a.Description}");
 
                 return sb.ToString().TrimEnd();
             });
         }
 
-        internal string PenisOfDay(long chatId)
+        internal string PigOfDay(long chatId)
         {
             var today = DateOnly.FromDateTime(DateTime.Now);
 
@@ -239,20 +239,20 @@ namespace AnikiChatBot.Modules
             {
                 var chat = GetChat(data, chatId);
 
-                if (chat.PenisOfDayDate == today && chat.PenisOfDayUserId is { } chosenId
+                if (chat.PigOfDayDate == today && chat.PigOfDayUserId is { } chosenId
                     && chat.Players.TryGetValue(chosenId, out var chosen))
-                    return $"🌞 Пенис дня уже выбран: {chosen.DisplayName} ({chosen.Size} см). Следующий — завтра.";
+                    return $"🌞 Свинья дня уже выбрана: {chosen.DisplayName} ({chosen.Size} т). Следующая — завтра.";
 
                 if (chat.Players.Count == 0)
-                    return "В чате ещё никто не растил пенис. Напиши /grow";
+                    return "В чате ещё никто не завёл свинью. Напиши /grow";
 
                 var players = chat.Players.Values.ToList();
                 var winner = players[_random.Next(players.Count)];
-                chat.PenisOfDayDate = today;
-                chat.PenisOfDayUserId = winner.UserId;
+                chat.PigOfDayDate = today;
+                chat.PigOfDayUserId = winner.UserId;
 
-                var earned = Award(data, winner.UserId, [PenisAchievements.PenisOfDay]);
-                return $"🌞 Пенис дня сегодня — {winner.DisplayName} ({winner.Size} см)!" + FormatAchievements(earned);
+                var earned = Award(data, winner.UserId, [PigAchievements.PigOfDay]);
+                return $"🌞 Свинья дня сегодня — {winner.DisplayName} ({winner.Size} т)!" + FormatAchievements(earned);
             });
         }
 
@@ -270,7 +270,7 @@ namespace AnikiChatBot.Modules
                 target = null;
 
             if (challenger == null)
-                error = "У тебя пока нет пениса. Напиши /grow";
+                error = "У тебя пока нет свиньи. Напиши /grow";
             else if (_duels.Values.Any(d => d.ChatId == chatId && d.ChallengerId == user.Id))
                 error = "У тебя уже есть открытый вызов — дождись, пока его примут.";
 
@@ -286,7 +286,7 @@ namespace AnikiChatBot.Modules
 
             string whom = target != null ? DisplayName(target) : "любого желающего";
             var challenge = await bot.SendMessage(chatId,
-                $"⚔️ {DisplayName(user)} ({challenger!.Size} см) вызывает на дуэль {whom}!\n" +
+                $"⚔️ {DisplayName(user)} ({challenger!.Size} т) вызывает на дуэль {whom}!\n" +
                 $"Вызов действует {DuelLifetime.TotalMinutes:0} минут.",
                 replyParameters: message.MessageId,
                 replyMarkup: new InlineKeyboardMarkup(InlineKeyboardButton.WithCallbackData("⚔️ Принять", $"duel:{duel.Id}")),
@@ -324,7 +324,7 @@ namespace AnikiChatBot.Modules
             else if (duel.TargetId != null && duel.TargetId != acceptor.Id)
                 refusal = "Этот вызов не тебе";
             else if (!_store.Read(data => data.Chats.GetValueOrDefault(duel.ChatId)?.Players.ContainsKey(acceptor.Id) == true))
-                refusal = "Сначала вырасти пенис: /grow";
+                refusal = "Сначала заведи свинью: /grow";
 
             if (refusal != null || !_duels.TryRemove(id, out _))
             {
@@ -352,16 +352,16 @@ namespace AnikiChatBot.Modules
                 var chat = GetChat(data, chatId);
 
                 if (!chat.Players.TryGetValue(user.Id, out var giver))
-                    return "У тебя пока нет пениса. Напиши /grow";
+                    return "У тебя пока нет свиньи. Напиши /grow";
 
                 if (!chat.Players.TryGetValue(target.Id, out var receiver))
-                    return $"У {DisplayName(target)} ещё нет пениса — пусть сначала напишет /grow.";
+                    return $"У {DisplayName(target)} ещё нет свиньи — пусть сначала напишет /grow.";
 
-                int canGive = giver.Size - PenisGame.MinSize;
+                int canGive = giver.Size - PigGame.MinSize;
                 if (amount > canGive)
                     return canGive > 0
-                        ? $"Столько нет — можно подарить не больше {canGive} см."
-                        : "Дарить нечего — у тебя минимальный размер.";
+                        ? $"Столько нет — можно подарить не больше {canGive} т."
+                        : "Дарить нечего — у тебя минимальный вес.";
 
                 giver.DisplayName = DisplayName(user);
                 receiver.DisplayName = DisplayName(target);
@@ -371,8 +371,8 @@ namespace AnikiChatBot.Modules
                 _stats?.RecordGrowth(chatId, giver.UserId, giver.DisplayName, -amount);
                 _stats?.RecordGrowth(chatId, receiver.UserId, receiver.DisplayName, amount);
 
-                return $"🎁 {giver.DisplayName} дарит {receiver.DisplayName} {amount} см.\n" +
-                       $"{giver.DisplayName}: {giver.Size} см · {receiver.DisplayName}: {receiver.Size} см";
+                return $"🎁 {giver.DisplayName} дарит {receiver.DisplayName} {amount} т.\n" +
+                       $"{giver.DisplayName}: {giver.Size} т · {receiver.DisplayName}: {receiver.Size} т";
             });
         }
 
@@ -385,11 +385,11 @@ namespace AnikiChatBot.Modules
                 var b = chat.Players[acceptor.Id];
                 b.DisplayName = DisplayName(acceptor);
 
-                var result = PenisGame.ResolveDuel(a.Size, b.Size, _random);
+                var result = PigGame.ResolveDuel(a.Size, b.Size, _random);
                 var (winner, loser) = result.ChallengerWins ? (a, b) : (b, a);
                 int winnerBefore = winner.Size, loserBefore = loser.Size;
 
-                string header = $"⚔️ Дуэль: {a.DisplayName} ({a.Size} см) vs {b.DisplayName} ({b.Size} см)";
+                string header = $"⚔️ Дуэль: {a.DisplayName} ({a.Size} т) vs {b.DisplayName} ({b.Size} т)";
                 winner.Size += result.Transfer;
                 loser.Size -= result.Transfer;
                 winner.DuelWins++;
@@ -407,13 +407,13 @@ namespace AnikiChatBot.Modules
                 };
 
                 string outcome = result.Transfer > 0
-                    ? $"🏆 Победил {winner.DisplayName} и отнял {result.Transfer} см.{hit}"
+                    ? $"🏆 Победил {winner.DisplayName} и отнял {result.Transfer} т.{hit}"
                     : $"🏆 Победил {winner.DisplayName}, но отнимать у соперника уже нечего.";
 
                 var earned = Award(data, winner.UserId,
-                    PenisAchievements.CheckAfterDuelWin(winner, winnerBefore, loserBefore, result.Hit));
+                    PigAchievements.CheckAfterDuelWin(winner, winnerBefore, loserBefore, result.Hit));
 
-                return $"{header}\n{outcome}\n\n{a.DisplayName}: {a.Size} см · {b.DisplayName}: {b.Size} см"
+                return $"{header}\n{outcome}\n\n{a.DisplayName}: {a.Size} т · {b.DisplayName}: {b.Size} т"
                     + FormatAchievements(earned);
             });
         }
@@ -445,7 +445,7 @@ namespace AnikiChatBot.Modules
             if (!data.Achievements.TryGetValue(userId, out var owned))
                 data.Achievements[userId] = owned = new HashSet<string>();
 
-            return ids.Where(owned.Add).Select(PenisAchievements.Get).ToList();
+            return ids.Where(owned.Add).Select(PigAchievements.Get).ToList();
         }
 
         private static string FormatAchievements(List<Achievement> earned)

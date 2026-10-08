@@ -71,7 +71,7 @@ namespace AnikiChatBot.Modules
             };
 
             if (me.Growth != 0 || me.DuelWins > 0)
-                lines.Add($"🍆 Игра: {(me.Growth > 0 ? "+" : "")}{me.Growth} см, побед в дуэлях: {me.DuelWins}");
+                lines.Add($"🐷 Игра: {(me.Growth > 0 ? "+" : "")}{me.Growth} т, побед в дуэлях: {me.DuelWins}");
 
             return string.Join("\n", lines);
         }

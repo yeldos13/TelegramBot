@@ -154,11 +154,11 @@ namespace AnikiChatBot
 
             var game = new List<string>();
             if (leader != null)
-                game.Add($"Самый большой: {leader.Name} — {leader.Size} см");
+                game.Add($"Самая тяжёлая свинья: {leader.Name} — {leader.Size} т");
 
             var grower = stats.Players.Values.Where(p => p.Growth > 0).MaxBy(p => p.Growth);
             if (grower != null)
-                game.Add($"Больше всех вырос: {grower.Name} (+{grower.Growth} см)");
+                game.Add($"Больше всех набрал: {grower.Name} (+{grower.Growth} т)");
 
             var duelist = stats.Players.Values.Where(p => p.DuelWins > 0).MaxBy(p => p.DuelWins);
             if (duelist != null)
@@ -167,7 +167,7 @@ namespace AnikiChatBot
             if (game.Count > 0)
             {
                 sb.AppendLine();
-                sb.AppendLine("🍆 Игра");
+                sb.AppendLine("🐷 Игра");
                 foreach (var line in game)
                     sb.AppendLine(line);
             }

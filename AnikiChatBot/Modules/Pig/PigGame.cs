@@ -1,10 +1,10 @@
-namespace AnikiChatBot.Modules.Penis
+namespace AnikiChatBot.Modules.Pig
 {
     public enum DuelHit { Normal, Critical, Knockout }
 
     public record DuelResult(bool ChallengerWins, int Transfer, DuelHit Hit);
 
-    public static class PenisGame
+    public static class PigGame
     {
         public const int MinSize = 1;
         public const int MaxDelta = 20;

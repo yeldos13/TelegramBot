@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace AnikiChatBot.Modules.Penis
+namespace AnikiChatBot.Modules.Pig
 {
     public class GrowEntry
     {
@@ -28,8 +28,8 @@ namespace AnikiChatBot.Modules.Penis
     public class ChatGame
     {
         public Dictionary<long, Player> Players { get; set; } = new();
-        public DateOnly? PenisOfDayDate { get; set; }
-        public long? PenisOfDayUserId { get; set; }
+        public DateOnly? PigOfDayDate { get; set; }
+        public long? PigOfDayUserId { get; set; }
     }
 
     public class GameData
@@ -39,7 +39,7 @@ namespace AnikiChatBot.Modules.Penis
         public Dictionary<long, HashSet<string>> Achievements { get; set; } = new();
     }
 
-    public class PenisStore
+    public class PigStore
     {
         private static readonly TimeSpan SaveInterval = TimeSpan.FromSeconds(30);
         private static readonly JsonSerializerOptions Compact = new();
@@ -49,11 +49,11 @@ namespace AnikiChatBot.Modules.Penis
         private readonly GameData _data;
         private readonly PeriodicSaver _saver;
 
-        public PenisStore(string filePath = "penis.json")
+        public PigStore(string filePath = "pig.json")
         {
             _filePath = filePath;
-            _data = JsonFile.Load<GameData>(filePath, "Penis") ?? new GameData();
-            _saver = new PeriodicSaver(() => JsonFile.Save(_filePath, _data, "Penis", Compact), _lock, SaveInterval);
+            _data = JsonFile.Load<GameData>(filePath, "Pig") ?? new GameData();
+            _saver = new PeriodicSaver(() => JsonFile.Save(_filePath, _data, "Pig", Compact), _lock, SaveInterval);
         }
 
         public T Read<T>(Func<GameData, T> read)

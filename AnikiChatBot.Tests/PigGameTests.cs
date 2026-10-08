@@ -1,12 +1,12 @@
 using AnikiChatBot.Modules;
-using AnikiChatBot.Modules.Penis;
+using AnikiChatBot.Modules.Pig;
 using Telegram.Bot.Types;
 
 namespace AnikiChatBot.Tests
 {
-    public class PenisGameTests : IDisposable
+    public class PigGameTests : IDisposable
     {
-        private readonly string _file = $"penis_test_{Guid.NewGuid():N}.json";
+        private readonly string _file = $"pig_test_{Guid.NewGuid():N}.json";
         private static readonly User Vasya = new User { Id = 1, FirstName = "Вася" };
         private static readonly User Petya = new User { Id = 2, FirstName = "Петя", LastName = "Иванов" };
         private static readonly DateOnly Day = new DateOnly(2026, 9, 21);
@@ -17,31 +17,31 @@ namespace AnikiChatBot.Tests
         {
             var player = new Player { UserId = 1, Size = 50 };
             for (int i = 0; i < deltas.Length; i++)
-                PenisGame.ApplyGrow(player, Day.AddDays(i), deltas[i]);
+                PigGame.ApplyGrow(player, Day.AddDays(i), deltas[i]);
             return player;
         }
 
         private static List<string> Check(Player player, DateTime? now = null) =>
-            PenisAchievements.CheckAfterGrow(player, now ?? new DateTime(2026, 9, 21, 15, 0, 0)).ToList();
+            PigAchievements.CheckAfterGrow(player, now ?? new DateTime(2026, 9, 21, 15, 0, 0)).ToList();
 
         [Fact]
         public void Deltas_stay_within_range_and_all_outcomes_happen()
         {
             var random = new Random(1);
-            var deltas = Enumerable.Range(0, 5000).Select(_ => PenisGame.RollDelta(random)).ToList();
+            var deltas = Enumerable.Range(0, 5000).Select(_ => PigGame.RollDelta(random)).ToList();
 
             Assert.All(deltas, d => Assert.InRange(d, -20, 20));
             Assert.Contains(20, deltas);
             Assert.Contains(-20, deltas);
             Assert.Contains(0, deltas);
-            Assert.True(deltas.Average() > 0, "В среднем пенис должен расти");
+            Assert.True(deltas.Average() > 0, "В среднем свинья должна набирать вес");
         }
 
         [Fact]
         public void Size_never_drops_below_one()
         {
             var player = new Player { Size = 5 };
-            PenisGame.ApplyGrow(player, Day, -20);
+            PigGame.ApplyGrow(player, Day, -20);
 
             Assert.Equal(1, player.Size);
             Assert.Equal(-20, player.History[^1].Delta);
@@ -51,11 +51,11 @@ namespace AnikiChatBot.Tests
         public void Streak_counts_consecutive_days_and_resets_after_gap()
         {
             var player = new Player { Size = 10 };
-            PenisGame.ApplyGrow(player, Day, 1);
-            PenisGame.ApplyGrow(player, Day.AddDays(1), 1);
+            PigGame.ApplyGrow(player, Day, 1);
+            PigGame.ApplyGrow(player, Day.AddDays(1), 1);
             Assert.Equal(2, player.Streak);
 
-            PenisGame.ApplyGrow(player, Day.AddDays(3), 1);
+            PigGame.ApplyGrow(player, Day.AddDays(3), 1);
             Assert.Equal(1, player.Streak);
         }
 
@@ -63,10 +63,10 @@ namespace AnikiChatBot.Tests
         public void Grow_is_allowed_once_per_day()
         {
             var player = new Player { Size = 10 };
-            Assert.True(PenisGame.CanGrow(player, Day));
-            PenisGame.ApplyGrow(player, Day, 3);
-            Assert.False(PenisGame.CanGrow(player, Day));
-            Assert.True(PenisGame.CanGrow(player, Day.AddDays(1)));
+            Assert.True(PigGame.CanGrow(player, Day));
+            PigGame.ApplyGrow(player, Day, 3);
+            Assert.False(PigGame.CanGrow(player, Day));
+            Assert.True(PigGame.CanGrow(player, Day.AddDays(1)));
         }
 
         [Fact]
@@ -75,21 +75,21 @@ namespace AnikiChatBot.Tests
             var random = new Random(7);
             for (int i = 0; i < 2000; i++)
             {
-                var result = PenisGame.ResolveDuel(40, 10, random);
+                var result = PigGame.ResolveDuel(40, 10, random);
                 int loser = result.ChallengerWins ? 10 : 40;
 
                 Assert.InRange(result.Transfer, 0, loser - 1);
                 Assert.True(result.Transfer <= loser / 2 || loser <= 2);
             }
 
-            Assert.Equal(0, PenisGame.ResolveDuel(100, 1, new Random(1)) is { ChallengerWins: true } r ? r.Transfer : 0);
+            Assert.Equal(0, PigGame.ResolveDuel(100, 1, new Random(1)) is { ChallengerWins: true } r ? r.Transfer : 0);
         }
 
         [Fact]
-        public void Bigger_penis_wins_more_often_but_not_always()
+        public void Heavier_pig_wins_more_often_but_not_always()
         {
             var random = new Random(3);
-            int wins = Enumerable.Range(0, 5000).Count(_ => PenisGame.ResolveDuel(90, 10, random).ChallengerWins);
+            int wins = Enumerable.Range(0, 5000).Count(_ => PigGame.ResolveDuel(90, 10, random).ChallengerWins);
 
             Assert.InRange(wins, 3000, 4000);
         }
@@ -125,7 +125,7 @@ namespace AnikiChatBot.Tests
         public void Infinity_war_needs_minus_twenty_to_one_cm()
         {
             var player = new Player { Size = 15 };
-            PenisGame.ApplyGrow(player, Day, -20);
+            PigGame.ApplyGrow(player, Day, -20);
 
             Assert.Contains("infinity", Check(player));
         }
@@ -146,8 +146,8 @@ namespace AnikiChatBot.Tests
         public void Last_year_achievement_needs_dec_31_and_jan_1()
         {
             var player = new Player { Size = 10 };
-            PenisGame.ApplyGrow(player, new DateOnly(2026, 12, 31), 1);
-            PenisGame.ApplyGrow(player, new DateOnly(2027, 1, 1), 1);
+            PigGame.ApplyGrow(player, new DateOnly(2026, 12, 31), 1);
+            PigGame.ApplyGrow(player, new DateOnly(2027, 1, 1), 1);
 
             Assert.Contains("lastyear", Check(player, new DateTime(2027, 1, 1, 12, 0, 0)));
         }
@@ -155,7 +155,7 @@ namespace AnikiChatBot.Tests
         [Fact]
         public void All_achievement_ids_are_unique_and_known()
         {
-            var ids = PenisAchievements.All.Select(a => a.Id).ToList();
+            var ids = PigAchievements.All.Select(a => a.Id).ToList();
             Assert.Equal(ids.Count, ids.Distinct().Count());
 
             var player = PlayerWith(20, -20, 0, 20, 20, 20, 20);
@@ -188,15 +188,15 @@ namespace AnikiChatBot.Tests
         [Fact]
         public void Full_game_flow_and_persistence()
         {
-            var store = new PenisStore(_file);
-            var module = new PenisModule(store, new Random(42));
+            var store = new PigStore(_file);
+            var module = new PigModule(store, new Random(42));
 
-            Assert.Contains("нет пениса", module.My(-1, Vasya));
-            Assert.Contains("никто не растил", module.Top(-1));
+            Assert.Contains("нет свиньи", module.My(-1, Vasya));
+            Assert.Contains("никто не завёл свинью", module.Top(-1));
 
             string first = module.Grow(-1, Vasya);
-            Assert.Contains("у тебя появился пенис", first);
-            Assert.Contains("уже рос сегодня", module.Grow(-1, Vasya));
+            Assert.Contains("у тебя появилась свинья", first);
+            Assert.Contains("уже кормил свинью сегодня", module.Grow(-1, Vasya));
 
             module.Grow(-1, Petya);
             Assert.Contains("🏷️", module.SetName(-1, Vasya, "Малыш"));
@@ -207,23 +207,23 @@ namespace AnikiChatBot.Tests
             Assert.Contains("Вася «Малыш»", top);
             Assert.Contains("Петя Иванов", top);
 
-            string day = module.PenisOfDay(-1);
-            Assert.Contains("Пенис дня сегодня", day);
-            Assert.Contains("уже выбран", module.PenisOfDay(-1));
+            string day = module.PigOfDay(-1);
+            Assert.Contains("Свинья дня сегодня", day);
+            Assert.Contains("уже выбрана", module.PigOfDay(-1));
 
-            Assert.Contains("Засветился", module.Grow(-2, Vasya));
+            Assert.Contains("Засветилась", module.Grow(-2, Vasya));
 
             Assert.False(System.IO.File.Exists(_file));
             store.Flush();
-            var restarted = new PenisModule(new PenisStore(_file));
+            var restarted = new PigModule(new PigStore(_file));
             Assert.Contains("Малыш", restarted.My(-1, Vasya));
-            Assert.Contains("уже рос сегодня", restarted.Grow(-1, Vasya));
+            Assert.Contains("уже кормил свинью сегодня", restarted.Grow(-1, Vasya));
         }
 
         [Fact]
         public void Name_is_limited_to_64_characters()
         {
-            var module = new PenisModule(new PenisStore(_file));
+            var module = new PigModule(new PigStore(_file));
             module.Grow(-1, Vasya);
 
             Assert.Contains("Слишком длинное", module.SetName(-1, Vasya, new string('a', 65)));
@@ -237,7 +237,7 @@ namespace AnikiChatBot.Tests
             try
             {
                 var stats = new StatsService(statsFile);
-                var module = new PenisModule(new PenisStore(_file), new Random(5), stats);
+                var module = new PigModule(new PigStore(_file), new Random(5), stats);
                 module.Grow(-1, Vasya);
                 module.Grow(-1, Petya);
 
@@ -263,33 +263,33 @@ namespace AnikiChatBot.Tests
         }
 
         [Fact]
-        public void Give_transfers_centimeters()
+        public void Give_transfers_tons()
         {
-            var module = new PenisModule(new PenisStore(_file), new Random(42));
+            var module = new PigModule(new PigStore(_file), new Random(42));
             var stranger = new User { Id = 3, FirstName = "Коля" };
 
             Assert.Contains("Ответь /give", module.Give(-1, Vasya, null, "5"));
             Assert.Contains("Ответь /give", module.Give(-1, Vasya, Vasya, "5"));
-            Assert.Contains("нет пениса", module.Give(-1, Vasya, Petya, "5"));
+            Assert.Contains("нет свиньи", module.Give(-1, Vasya, Petya, "5"));
 
             module.Grow(-1, Vasya);
             module.Grow(-1, Petya);
-            Assert.Contains("ещё нет пениса", module.Give(-1, Vasya, stranger, "1"));
+            Assert.Contains("ещё нет свиньи", module.Give(-1, Vasya, stranger, "1"));
             Assert.Contains("Укажи, сколько", module.Give(-1, Vasya, Petya, "-3"));
 
-            int vasyaBefore = SizeOf(module.My(-1, Vasya));
-            int petyaBefore = SizeOf(module.My(-1, Petya));
+            int vasyaBefore = WeightOf(module.My(-1, Vasya));
+            int petyaBefore = WeightOf(module.My(-1, Petya));
 
             Assert.Contains("Столько нет", module.Give(-1, Vasya, Petya, vasyaBefore.ToString()));
 
             string result = module.Give(-1, Vasya, Petya, "1");
-            Assert.StartsWith("🎁 Вася дарит Петя Иванов 1 см.", result);
-            Assert.Equal(vasyaBefore - 1, SizeOf(module.My(-1, Vasya)));
-            Assert.Equal(petyaBefore + 1, SizeOf(module.My(-1, Petya)));
+            Assert.StartsWith("🎁 Вася дарит Петя Иванов 1 т.", result);
+            Assert.Equal(vasyaBefore - 1, WeightOf(module.My(-1, Vasya)));
+            Assert.Equal(petyaBefore + 1, WeightOf(module.My(-1, Petya)));
         }
 
-        private static int SizeOf(string my) =>
-            int.Parse(my.Split('\n').First(l => l.StartsWith("Размер:")).Split(' ')[1]);
+        private static int WeightOf(string my) =>
+            int.Parse(my.Split('\n').First(l => l.StartsWith("Вес:")).Split(' ')[1]);
 
         [Theory]
         [InlineData(1, 10, 20, DuelHit.Normal, new[] { "duel_first", "duel_goliath" })]
@@ -298,7 +298,7 @@ namespace AnikiChatBot.Tests
         public void Duel_achievements(int wins, int winnerSize, int loserSize, DuelHit hit, string[] expected)
         {
             var winner = new Player { DuelWins = wins };
-            Assert.Equal(expected, PenisAchievements.CheckAfterDuelWin(winner, winnerSize, loserSize, hit).ToArray());
+            Assert.Equal(expected, PigAchievements.CheckAfterDuelWin(winner, winnerSize, loserSize, hit).ToArray());
         }
     }
 }
