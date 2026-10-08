@@ -88,5 +88,35 @@ namespace AnikiChatBot.Tests
 
             Assert.DoesNotContain("@", SteamGiveawaysModule.BuildAnnouncement(app, null));
         }
+
+        [Fact]
+        public void Announcement_is_two_lines_plus_tag()
+        {
+            var app = new SteamGiveawaysModule.SteamApp(1, "X", "game", 100, null, null);
+
+            Assert.Equal(
+                "🎁 В Steam бесплатно раздают <b>X</b>\n" +
+                "Забрать: <a href=\"https://store.steampowered.com/app/1/\">https://store.steampowered.com/app/1/</a>\n\n@owner",
+                SteamGiveawaysModule.BuildAnnouncement(app, "owner"));
+        }
+
+        [Theory]
+        [InlineData("@somechat", "@somechat")]
+        [InlineData("somechat", "@somechat")]
+        [InlineData(" -100123 ", "-100123")]
+        public void Steam_goes_to_configured_chat_only(string configured, string expected)
+        {
+            var targets = BotWorker.SteamTargets(configured, [-1, -2]);
+
+            Assert.Equal(expected, Assert.Single(targets).ToString());
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("  ")]
+        public void Steam_goes_to_all_chats_when_not_configured(string? configured)
+        {
+            Assert.Equal(["-1", "-2"], BotWorker.SteamTargets(configured, [-1, -2]).Select(c => c.ToString()));
+        }
     }
 }

@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using AnikiChatBot.Modules.Media;
 using Telegram.Bot;
+using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
 
 namespace AnikiChatBot.Modules
@@ -63,11 +64,11 @@ namespace AnikiChatBot.Modules
             return found;
         }
 
-        public async Task AnnounceAsync(ITelegramBotClient bot, IEnumerable<long> chatIds, SteamApp app, string? ownerUsername, CancellationToken ct)
+        public async Task AnnounceAsync(ITelegramBotClient bot, IEnumerable<ChatId> chatIds, SteamApp app, string? ownerUsername, CancellationToken ct)
         {
             string caption = BuildAnnouncement(app, ownerUsername);
 
-            foreach (long chatId in chatIds)
+            foreach (var chatId in chatIds)
             {
                 try
                 {
@@ -125,7 +126,7 @@ namespace AnikiChatBot.Modules
             if (app.InitialPrice != null)
                 text += $" (обычно {WebUtility.HtmlEncode(app.InitialPrice)})";
 
-            text += $"\nЗабрать: <a href=\"{app.Link}\">{app.Link}</a>\nПосле получения игра остаётся в библиотеке навсегда.";
+            text += $"\nЗабрать: <a href=\"{app.Link}\">{app.Link}</a>";
 
             string? tag = ownerUsername?.TrimStart('@');
             if (!string.IsNullOrEmpty(tag))

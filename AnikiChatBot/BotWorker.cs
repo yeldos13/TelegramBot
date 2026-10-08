@@ -29,6 +29,7 @@ namespace AnikiChatBot
         private readonly PigModule _pigModule;
         private readonly HelpModule _helpModule = new HelpModule();
         private readonly SteamGiveawaysModule _steamModule = new SteamGiveawaysModule();
+        private readonly WeatherModule _weatherModule = new WeatherModule();
         private SpamModule _spamModule = null!;
         private NewcomerLinksModule _newcomerModule = null!;
         private readonly FunModule _funModule;
@@ -129,10 +130,11 @@ namespace AnikiChatBot
             _helpModule.SetBotUsername(me.Username);
             _spamModule.SetBotUsername(me.Username);
             _funModule.SetBotUsername(me.Username);
+            _weatherModule.SetBotUsername(me.Username);
             _currencyModule.SetBotUsername(me.Username);
 
             await RunModuleAsync("Commands", () => botClient.SetMyCommands(
-                [HelpModule.Command, .. PigModule.Commands, .. FunModule.Commands, .. CurrencyModule.Commands],
+                [HelpModule.Command, .. PigModule.Commands, .. FunModule.Commands, .. WeatherModule.Commands, .. CurrencyModule.Commands],
                 scope: new Telegram.Bot.Types.BotCommandScopeAllGroupChats(), cancellationToken: ct));
             Console.WriteLine($"Bot @{me.Username} started. Allowed chats count: {_allowedChatIds.Count}, replies: {_repeaterModule.Count}");
 
@@ -246,8 +248,19 @@ namespace AnikiChatBot
             }
         }
 
+        public static List<ChatId> SteamTargets(string? configured, IEnumerable<long> allowedChatIds)
+        {
+            if (string.IsNullOrWhiteSpace(configured))
+                return allowedChatIds.Select(id => new ChatId(id)).ToList();
+
+            string chat = configured.Trim();
+            return [long.TryParse(chat, out long id) ? new ChatId(id) : new ChatId(chat.StartsWith('@') ? chat : "@" + chat)];
+        }
+
         private async Task SteamGiveawaysLoopAsync(ITelegramBotClient bot, CancellationToken ct)
         {
+            var targets = SteamTargets(_config["SteamGiveawaysChat"], _allowedChatIds);
+
             await Task.Delay(TimeSpan.FromMinutes(1), ct);
             while (true)
             {
@@ -256,7 +269,7 @@ namespace AnikiChatBot
                     foreach (var app in await _steamModule.FindNewGiveawaysAsync(ct))
                     {
                         Console.WriteLine($"[Steam] Раздача: {app.Name} ({app.Link})");
-                        await _steamModule.AnnounceAsync(bot, _allowedChatIds, app, _config["OwnerUsername"], ct);
+                        await _steamModule.AnnounceAsync(bot, targets, app, _config["OwnerUsername"], ct);
                     }
                 });
                 await Task.Delay(TimeSpan.FromHours(1), ct);
@@ -335,6 +348,7 @@ namespace AnikiChatBot
             if (await HandledByAsync("Moderation", () => _spamModule.HandleModerationCommand(bot, message, ct))
                 || await HandledByAsync("Help", () => _helpModule.HandleCommand(bot, message, ct))
                 || await HandledByAsync("Fun", () => _funModule.HandleCommand(bot, message, ct))
+                || await HandledByAsync("Weather", () => _weatherModule.HandleMessage(bot, message, ct))
                 || await HandledByAsync("Pig", () => _pigModule.HandleCommand(bot, message, ct)))
                 return;
 
