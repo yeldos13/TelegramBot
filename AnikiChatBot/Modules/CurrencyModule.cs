@@ -73,6 +73,7 @@ namespace AnikiChatBot.Modules
             _stats = stats;
             _crypto = new CryptoRates(httpClient);
             LoadCache();
+            _morning = JsonFile.Load<RatesSnapshot>(MorningFilePath, "Currency");
         }
 
         public void SetBotUsername(string? username) => _botUsername = username ?? "";
@@ -113,7 +114,10 @@ namespace AnikiChatBot.Modules
             );
 
             _stats?.RecordConversion(update.Message.Chat.Id);
+            Cleanup.DeleteLater(bot, update.Message.Chat.Id, ConversionDeleteDelay, update.Message.Id, sentMessage.MessageId);
         }
+
+        private static readonly TimeSpan ConversionDeleteDelay = TimeSpan.FromMinutes(1);
 
         public static string FormatAmount(double value) =>
             Math.Abs(value) >= 1 || value == 0 ? value.ToString("N2") : value.ToString("0.########");
@@ -142,12 +146,53 @@ namespace AnikiChatBot.Modules
             Cleanup.DeleteCommandLater(bot, message, sent);
         }
 
-        public static string BuildRatesTable(Dictionary<string, double> rates, Dictionary<string, double>? crypto, DateTime updated)
+        public class RatesSnapshot
+        {
+            public DateOnly Date { get; set; }
+            public Dictionary<string, double> Rates { get; set; } = new();
+            public Dictionary<string, double>? Crypto { get; set; }
+        }
+
+        private const string MorningFilePath = "morning_rates.json";
+        private RatesSnapshot? _morning;
+
+        public bool IsMorningPostDue(DateOnly today) => _morning?.Date != today;
+
+        public async Task<string?> BuildMorningRatesAsync(DateOnly today)
+        {
+            var rates = await GetExchangeRatesAsync();
+            if (rates == null)
+                return null;
+
+            var crypto = await _crypto.GetRubPricesAsync();
+            string text = "☀️ Доброе утро!\n" + BuildRatesTable(rates, crypto, _lastRatesUpdate.ToLocalTime(), _morning);
+
+            _morning = new RatesSnapshot { Date = today, Rates = new(rates), Crypto = crypto == null ? null : new(crypto) };
+            JsonFile.Save(MorningFilePath, _morning, "Currency");
+            return text;
+        }
+
+        public static string FormatChange(double delta) =>
+            Math.Abs(delta) < 0.005 ? "" : $" ({(delta > 0 ? "+" : "−")}{Math.Abs(delta):N2})";
+
+        public static string FormatPercentChange(double now, double before)
+        {
+            if (before <= 0)
+                return "";
+            double percent = (now - before) / before * 100;
+            return Math.Abs(percent) < 0.05 ? "" : $" ({(percent > 0 ? "+" : "−")}{Math.Abs(percent):N1}%)";
+        }
+
+        public static string BuildRatesTable(Dictionary<string, double> rates, Dictionary<string, double>? crypto, DateTime updated,
+            RatesSnapshot? previous = null)
         {
             double Rub(string code) => 1 / rates[code];
             double Kzt(string code) => rates["KZT"] / rates[code];
 
-            var sb = new StringBuilder($"💱 Курсы на {updated:dd.MM HH:mm}\n\n");
+            var sb = new StringBuilder($"💱 Курсы на {updated:dd.MM HH:mm}\n");
+            if (previous != null)
+                sb.AppendLine($"В скобках — изменение с {previous.Date:dd.MM}");
+            sb.AppendLine();
 
             foreach (var code in new[] { "USD", "EUR", "CAD", "BYN", "UAH" })
             {
@@ -156,6 +201,8 @@ namespace AnikiChatBot.Modules
 
                 string flag = GetCurrencyTargetInfo(code).Split(' ')[0];
                 string line = $"{flag} 1 {code} = {Rub(code):N2} ₽";
+                if (previous?.Rates.GetValueOrDefault(code) is > 0 and var before)
+                    line += FormatChange(Rub(code) - 1 / before);
                 if (rates.ContainsKey("KZT"))
                     line += $" · {Kzt(code):N2} ₸";
                 sb.AppendLine(line);
@@ -172,8 +219,14 @@ namespace AnikiChatBot.Modules
                 sb.AppendLine();
                 foreach (var code in new[] { "BTC", "ETH", "TON", "SOL", "USDT" })
                 {
-                    if (crypto.TryGetValue(code, out double rub))
-                        sb.AppendLine($"🪙 1 {code} = {rub * usdPerRub:N2} $ · {rub:N2} ₽");
+                    if (!crypto.TryGetValue(code, out double rub))
+                        continue;
+
+                    string line = $"🪙 1 {code} = {rub * usdPerRub:N2} $ · {rub:N2} ₽";
+                    if (code != "USDT" && previous?.Crypto?.GetValueOrDefault(code) is > 0 and var beforeRub
+                        && previous.Rates.GetValueOrDefault("USD") is > 0 and var beforeUsd)
+                        line += FormatPercentChange(rub * usdPerRub, beforeRub * beforeUsd);
+                    sb.AppendLine(line);
                 }
             }
 

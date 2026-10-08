@@ -76,6 +76,63 @@ namespace AnikiChatBot.Tests
         }
 
         [Fact]
+        public void Rates_table_shows_change_since_previous_snapshot()
+        {
+            var previous = new CurrencyModule.RatesSnapshot
+            {
+                Date = new DateOnly(2026, 9, 29),
+                Rates = new(Rates) { ["USD"] = 0.0125 / 1.01, ["EUR"] = 0.0107 },
+                Crypto = new() { ["BTC"] = 7_000_000 * 0.98, ["USDT"] = 80 }
+            };
+
+            string table = CurrencyModule.BuildRatesTable(Rates, Crypto, new DateTime(2026, 9, 30, 9, 0, 0), previous);
+
+            Assert.Contains("В скобках — изменение с 29.09", table);
+            Assert.Contains($"1 USD = {80.0:N2} ₽ (−{0.80:N2})", table);
+            Assert.DoesNotContain("₽ (", table.Split('\n').First(l => l.Contains("1 EUR")));
+            Assert.Contains($"{87500.0:N2} $ · {7000000.0:N2} ₽ (+{3.1:N1}%)", table);
+            Assert.DoesNotContain("%", table.Split('\n').First(l => l.Contains("USDT")));
+        }
+
+        [Theory]
+        [InlineData(0.4, "+0,40")]
+        [InlineData(-1.234, "−1,23")]
+        [InlineData(0.001, "")]
+        public void Formats_rate_change(double delta, string expected)
+        {
+            string text = CurrencyModule.FormatChange(delta).Replace(".", ",");
+            Assert.Equal(expected == "" ? "" : $" ({expected})", text);
+        }
+
+        [Theory]
+        [InlineData("09:30", 9, 30)]
+        [InlineData("7:05", 7, 5)]
+        [InlineData("ерунда", 9, 0)]
+        [InlineData(null, 9, 0)]
+        public void Parses_post_time(string? value, int hour, int minute)
+        {
+            Assert.Equal(new TimeOnly(hour, minute), BotWorker.ParseTime(value, new TimeOnly(9, 0)));
+        }
+
+        [Theory]
+        [InlineData(8, 59, false)]
+        [InlineData(9, 0, true)]
+        [InlineData(11, 59, true)]
+        [InlineData(12, 0, false)]
+        [InlineData(23, 0, false)]
+        public void Morning_rates_are_posted_only_in_the_morning(int hour, int minute, bool expected)
+        {
+            Assert.Equal(expected, BotWorker.IsMorningRatesTime(new TimeOnly(hour, minute), new TimeOnly(9, 0)));
+        }
+
+        [Fact]
+        public void Morning_rates_window_does_not_wrap_past_midnight()
+        {
+            Assert.True(BotWorker.IsMorningRatesTime(new TimeOnly(23, 0), new TimeOnly(22, 0)));
+            Assert.False(BotWorker.IsMorningRatesTime(new TimeOnly(0, 30), new TimeOnly(22, 0)));
+        }
+
+        [Fact]
         public void Rates_table_without_crypto()
         {
             string table = CurrencyModule.BuildRatesTable(Rates, null, DateTime.Now);

@@ -1,4 +1,5 @@
 using AnikiChatBot.Modules;
+using System.Globalization;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Telegram.Bot;
@@ -146,7 +147,53 @@ namespace AnikiChatBot
                 _notifier.Notify("restart-done", "✅ Перезапущен по команде.");
             }
 
-            await Task.WhenAll(UpdateYtDlpLoopAsync(ct), WeeklyReportLoopAsync(botClient, ct), CookieCheckLoopAsync(ct));
+            await Task.WhenAll(UpdateYtDlpLoopAsync(ct), WeeklyReportLoopAsync(botClient, ct), CookieCheckLoopAsync(ct),
+                DailyPostsLoopAsync(botClient, ct));
+        }
+
+        private static readonly TimeSpan MorningRatesWindow = TimeSpan.FromHours(3);
+
+        public static TimeOnly ParseTime(string? value, TimeOnly fallback) =>
+            TimeOnly.TryParse(value, CultureInfo.InvariantCulture, out var time) ? time : fallback;
+
+        public static bool IsMorningRatesTime(TimeOnly now, TimeOnly start) =>
+            now >= start && now - start < MorningRatesWindow;
+
+        private async Task DailyPostsLoopAsync(ITelegramBotClient bot, CancellationToken ct)
+        {
+            var ratesTime = ParseTime(_config["MorningRatesTime"], new TimeOnly(9, 0));
+            var pigTime = ParseTime(_config["PigOfDayTime"], new TimeOnly(12, 0));
+
+            while (true)
+            {
+                var now = DateTime.Now;
+                var today = DateOnly.FromDateTime(now);
+                var time = TimeOnly.FromDateTime(now);
+
+                if (IsMorningRatesTime(time, ratesTime) && _currencyModule.IsMorningPostDue(today))
+                {
+                    await RunModuleAsync("MorningRates", async () =>
+                    {
+                        if (await _currencyModule.BuildMorningRatesAsync(today) is not { } text)
+                            return;
+
+                        foreach (long chatId in _allowedChatIds)
+                            await RunModuleAsync("MorningRates", () => bot.SendMessage(chatId, text, cancellationToken: ct));
+                        Console.WriteLine("[Currency] Утренние курсы отправлены");
+                    });
+                }
+
+                if (time >= pigTime)
+                {
+                    foreach (long chatId in _allowedChatIds)
+                    {
+                        if (_pigModule.PickPigOfDayIfNotChosen(chatId) is { } text)
+                            await RunModuleAsync("PigOfDay", () => bot.SendMessage(chatId, text, cancellationToken: ct));
+                    }
+                }
+
+                await Task.Delay(TimeSpan.FromMinutes(1), ct);
+            }
         }
 
         public static async Task<T> WaitForTelegramAsync<T>(Func<Task<T>> request, CancellationToken ct,

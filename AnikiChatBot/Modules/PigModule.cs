@@ -246,14 +246,32 @@ namespace AnikiChatBot.Modules
                 if (chat.Players.Count == 0)
                     return "В чате ещё никто не завёл свинью. Напиши /grow";
 
-                var players = chat.Players.Values.ToList();
-                var winner = players[_random.Next(players.Count)];
-                chat.PigOfDayDate = today;
-                chat.PigOfDayUserId = winner.UserId;
-
-                var earned = Award(data, winner.UserId, [PigAchievements.PigOfDay]);
-                return $"🌞 Свинья дня сегодня — {winner.DisplayName} ({winner.Size} т)!" + FormatAchievements(earned);
+                return ChoosePigOfDay(data, chat, today);
             });
+        }
+
+        public string? PickPigOfDayIfNotChosen(long chatId)
+        {
+            var today = DateOnly.FromDateTime(DateTime.Now);
+
+            return _store.Update<string?>(data =>
+            {
+                if (!data.Chats.TryGetValue(chatId, out var chat) || chat.Players.Count == 0 || chat.PigOfDayDate == today)
+                    return null;
+
+                return ChoosePigOfDay(data, chat, today);
+            });
+        }
+
+        private string ChoosePigOfDay(GameData data, ChatGame chat, DateOnly today)
+        {
+            var players = chat.Players.Values.ToList();
+            var winner = players[_random.Next(players.Count)];
+            chat.PigOfDayDate = today;
+            chat.PigOfDayUserId = winner.UserId;
+
+            var earned = Award(data, winner.UserId, [PigAchievements.PigOfDay]);
+            return $"🌞 Свинья дня сегодня — {winner.DisplayName} ({winner.Size} т)!" + FormatAchievements(earned);
         }
 
         private async Task StartDuelAsync(ITelegramBotClient bot, Message message, User user, CancellationToken ct)

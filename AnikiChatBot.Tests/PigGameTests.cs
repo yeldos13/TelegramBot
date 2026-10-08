@@ -186,6 +186,32 @@ namespace AnikiChatBot.Tests
         }
 
         [Fact]
+        public void Pig_of_day_is_picked_automatically_once_a_day()
+        {
+            var module = new PigModule(new PigStore(_file), new Random(1));
+
+            Assert.Null(module.PickPigOfDayIfNotChosen(-1));
+
+            module.Grow(-1, Vasya);
+            string? picked = module.PickPigOfDayIfNotChosen(-1);
+            Assert.NotNull(picked);
+            Assert.Contains("Свинья дня сегодня — Вася", picked);
+
+            Assert.Null(module.PickPigOfDayIfNotChosen(-1));
+            Assert.Contains("уже выбрана", module.PigOfDay(-1));
+        }
+
+        [Fact]
+        public void Pig_of_day_is_not_repicked_after_command()
+        {
+            var module = new PigModule(new PigStore(_file), new Random(1));
+            module.Grow(-1, Vasya);
+            module.PigOfDay(-1);
+
+            Assert.Null(module.PickPigOfDayIfNotChosen(-1));
+        }
+
+        [Fact]
         public void Full_game_flow_and_persistence()
         {
             var store = new PigStore(_file);
