@@ -11,7 +11,6 @@ namespace AnikiChatBot.Modules
 {
     public class WeatherModule
     {
-        private static readonly TimeSpan DeleteDelay = TimeSpan.FromMinutes(1);
         private static readonly TimeSpan ForecastCacheLifetime = TimeSpan.FromMinutes(10);
 
         private static readonly Regex TriggerRegex = new(
@@ -47,7 +46,7 @@ namespace AnikiChatBot.Modules
                 : await BuildReplyAsync(request, ct);
 
             var sent = await bot.SendMessage(message.Chat.Id, reply, replyParameters: message.MessageId, cancellationToken: ct);
-            Cleanup.DeleteLater(bot, message.Chat.Id, DeleteDelay, message.MessageId, sent.MessageId);
+            Cleanup.DeleteLater(bot, message.Chat.Id, Cleanup.CommandDelay, message.MessageId, sent.MessageId);
             return true;
         }
 

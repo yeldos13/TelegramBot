@@ -114,10 +114,8 @@ namespace AnikiChatBot.Modules
             );
 
             _stats?.RecordConversion(update.Message.Chat.Id);
-            Cleanup.DeleteLater(bot, update.Message.Chat.Id, ConversionDeleteDelay, update.Message.Id, sentMessage.MessageId);
+            Cleanup.DeleteLater(bot, update.Message.Chat.Id, Cleanup.CommandDelay, update.Message.Id, sentMessage.MessageId);
         }
-
-        private static readonly TimeSpan ConversionDeleteDelay = TimeSpan.FromMinutes(1);
 
         public static string FormatAmount(double value) =>
             Math.Abs(value) >= 1 || value == 0 ? value.ToString("N2") : value.ToString("0.########");
