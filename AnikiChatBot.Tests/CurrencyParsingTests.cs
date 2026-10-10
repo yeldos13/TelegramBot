@@ -5,6 +5,23 @@ namespace AnikiChatBot.Tests
     public class CurrencyParsingTests
     {
         [Theory]
+        [InlineData("100$", true)]
+        [InlineData("  5000 тг ", true)]
+        [InlineData("100$ 20 евро", true)]
+        [InlineData("0.1 btc?", true)]
+        [InlineData("50 usdt!", true)]
+        [InlineData("10 000 тг", true)]
+        [InlineData("вчера отдал 100$ за ужин, норм?", false)]
+        [InlineData("100$ это дорого", false)]
+        [InlineData("500 рублей потрачено", false)]
+        [InlineData("скинь 5к рублей", false)]
+        [InlineData("100$ 😂", true)]
+        public void Only_bare_amounts_are_deleted_with_reply(string text, bool expected)
+        {
+            Assert.Equal(expected, CurrencyModule.IsOnlyAmounts(text));
+        }
+
+        [Theory]
         [InlineData("5 р", 5, "RUB")]
         [InlineData("1000 рублей", 1000, "RUB")]
         [InlineData("300₽", 300, "RUB")]

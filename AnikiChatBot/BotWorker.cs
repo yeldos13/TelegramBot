@@ -269,7 +269,10 @@ namespace AnikiChatBot
                     foreach (var app in await _steamModule.FindNewGiveawaysAsync(ct))
                     {
                         Console.WriteLine($"[Steam] Раздача: {app.Name} ({app.Link})");
-                        await _steamModule.AnnounceAsync(bot, targets, app, _config["OwnerUsername"], ct);
+                        if (await _steamModule.AnnounceAsync(bot, targets, app, _config["OwnerUsername"], ct))
+                            _steamModule.MarkAnnounced(app.Id);
+                        else
+                            _notifier.Notify("steam-send", $"Не удалось отправить раздачу Steam «{app.Name}» в {string.Join(", ", targets)}. Попробую снова через час.");
                     }
                 });
                 await Task.Delay(TimeSpan.FromHours(1), ct);

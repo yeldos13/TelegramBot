@@ -52,9 +52,10 @@ namespace AnikiChatBot.Modules
                 if (ParseAppDetails(details, id) is not { } app)
                     continue;
 
-                _seen[id] = now;
                 if (app.IsGiveaway)
                     found.Add(app);
+                else
+                    _seen[id] = now;
             }
 
             foreach (long old in _seen.Where(p => now - p.Value > ForgetAfter).Select(p => p.Key).ToList())
@@ -64,9 +65,16 @@ namespace AnikiChatBot.Modules
             return found;
         }
 
-        public async Task AnnounceAsync(ITelegramBotClient bot, IEnumerable<ChatId> chatIds, SteamApp app, string? ownerUsername, CancellationToken ct)
+        public void MarkAnnounced(long id)
+        {
+            _seen[id] = DateTime.UtcNow;
+            JsonFile.Save(_seenFile, _seen, "Steam");
+        }
+
+        public async Task<bool> AnnounceAsync(ITelegramBotClient bot, IEnumerable<ChatId> chatIds, SteamApp app, string? ownerUsername, CancellationToken ct)
         {
             string caption = BuildAnnouncement(app, ownerUsername);
+            bool sent = false;
 
             foreach (var chatId in chatIds)
             {
@@ -76,13 +84,24 @@ namespace AnikiChatBot.Modules
                         await bot.SendPhoto(chatId, app.HeaderImage, caption: caption, parseMode: ParseMode.Html, cancellationToken: ct);
                     else
                         await bot.SendMessage(chatId, caption, parseMode: ParseMode.Html, cancellationToken: ct);
+                    sent = true;
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
-                    Console.Error.WriteLine($"[Steam] Не удалось отправить раздачу {app.Name}: {ex.Message}");
-                    await bot.SendMessage(chatId, caption, parseMode: ParseMode.Html, cancellationToken: ct);
+                    Console.Error.WriteLine($"[Steam] Не удалось отправить раздачу {app.Name} в {chatId}: {ex.Message}");
+                    try
+                    {
+                        await bot.SendMessage(chatId, caption, parseMode: ParseMode.Html, cancellationToken: ct);
+                        sent = true;
+                    }
+                    catch (Exception retry) when (retry is not OperationCanceledException)
+                    {
+                        Console.Error.WriteLine($"[Steam] Повторная отправка в {chatId} тоже не удалась: {retry.Message}");
+                    }
                 }
             }
+
+            return sent;
         }
 
         public static List<long> ParseSearchAppIds(string json)

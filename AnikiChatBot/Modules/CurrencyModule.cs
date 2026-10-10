@@ -114,7 +114,17 @@ namespace AnikiChatBot.Modules
             );
 
             _stats?.RecordConversion(update.Message.Chat.Id);
-            Cleanup.DeleteLater(bot, update.Message.Chat.Id, Cleanup.CommandDelay, update.Message.Id, sentMessage.MessageId);
+            if (IsOnlyAmounts(text))
+                Cleanup.DeleteLater(bot, update.Message.Chat.Id, Cleanup.CommandDelay, update.Message.Id, sentMessage.MessageId);
+            else
+                Cleanup.DeleteLater(bot, update.Message.Chat.Id, Cleanup.CommandDelay, sentMessage.MessageId);
+        }
+
+        public static bool IsOnlyAmounts(string text)
+        {
+            string rest = NamedCurrencyRegex.Replace(text, " ");
+            rest = GenericCurrencyRegex.Replace(rest, m => ParseNumber(m.Groups[1].Value) != null ? " " : m.Value);
+            return !rest.Any(char.IsLetterOrDigit);
         }
 
         public static string FormatAmount(double value) =>
