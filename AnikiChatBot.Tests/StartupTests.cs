@@ -5,6 +5,12 @@ namespace AnikiChatBot.Tests
     public class StartupTests
     {
         [Fact]
+        public void Chat_ids_keep_config_order()
+        {
+            Assert.Equal([-300L, -100L, -200L], BotWorker.ParseChatIds(" -300, -100 ,-200,"));
+        }
+
+        [Fact]
         public async Task Waits_for_network_with_growing_delays()
         {
             int calls = 0;

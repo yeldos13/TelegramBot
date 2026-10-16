@@ -22,6 +22,11 @@ namespace AnikiChatBot
         private readonly DateTime _startedAt = DateTime.Now;
 
         private HashSet<long> _allowedChatIds = new();
+        private long _mainChatId;
+
+        public static List<long> ParseChatIds(string raw) =>
+            raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(long.Parse).ToList();
+
         private OwnerNotifier _notifier = null!;
         private readonly StatsService _stats = new StatsService();
         private readonly Modules.Pig.PigStore _pigStore = new Modules.Pig.PigStore();
@@ -37,6 +42,7 @@ namespace AnikiChatBot
         private MediaModule _mediaModule = null!;
         private RepeaterModule _repeaterModule = null!;
         private MembersModule _membersModule = null!;
+        private RandomGifModule _gifModule = null!;
 
         public BotWorker(IConfiguration config)
         {
@@ -86,10 +92,9 @@ namespace AnikiChatBot
             var rawChatIds = _config["AllowedChatIds"]
                 ?? throw new Exception("Cant find AllowedChatIds in appsettings.json");
 
-            _allowedChatIds = rawChatIds
-                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                .Select(long.Parse)
-                .ToHashSet();
+            var chatIds = ParseChatIds(rawChatIds);
+            _mainChatId = chatIds.FirstOrDefault();
+            _allowedChatIds = chatIds.ToHashSet();
 
             var exchangeApiKey = _config["ExchangeApiKey"]
                 ?? throw new Exception("Cant find ExchangeApiKey in appsettings.json");
@@ -107,6 +112,11 @@ namespace AnikiChatBot
 
             _currencyModule = new CurrencyModule(Modules.Media.MediaHttp.Client, exchangeApiKey, _notifier, _stats);
             _repeaterModule = new RepeaterModule(_stats);
+            _gifModule = new RandomGifModule(
+                _config["GifsFolder"] ?? "gifs",
+                RandomGifModule.ParseChance(_config["RandomGifChance"], 0.03),
+                TimeSpan.FromMinutes(10));
+
             _mediaModule = new MediaModule(
                 ytDlpPath: _config["YtDlpPath"] ?? @"C:\YTDLP\yt-dlp.exe",
                 ffmpegPath: _config["FfmpegPath"] ?? @"C:\FFMPEG\bin\ffmpeg.exe",
@@ -180,8 +190,7 @@ namespace AnikiChatBot
                         if (await _currencyModule.BuildMorningRatesAsync(today) is not { } text)
                             return;
 
-                        foreach (long chatId in _allowedChatIds)
-                            await RunModuleAsync("MorningRates", () => bot.SendMessage(chatId, text, cancellationToken: ct));
+                        await RunModuleAsync("MorningRates", () => bot.SendMessage(_mainChatId, text, cancellationToken: ct));
                         Console.WriteLine("[Currency] Утренние курсы отправлены");
                     });
                 }
@@ -358,6 +367,7 @@ namespace AnikiChatBot
             await RunModuleAsync("Currency", () => _currencyModule.HandleCurrencyCommand(bot, update, ct));
             await RunModuleAsync("Media", () => _mediaModule.HandleMediaCommand(bot, update, ct));
             await RunModuleAsync("Repeater", () => _repeaterModule.HandleRepeaterCommand(bot, update, ct));
+            await RunModuleAsync("Gif", () => _gifModule.HandleMessage(bot, message, ct));
         }
 
         private async Task HandleOwnerCommandAsync(ITelegramBotClient bot, Message message, CancellationToken ct)
