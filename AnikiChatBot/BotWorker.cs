@@ -121,6 +121,7 @@ namespace AnikiChatBot
                 ytDlpPath: _config["YtDlpPath"] ?? @"C:\YTDLP\yt-dlp.exe",
                 ffmpegPath: _config["FfmpegPath"] ?? @"C:\FFMPEG\bin\ffmpeg.exe",
                 cookiesFile: _config["CookiesFile"],
+                jsRuntimePath: _config["JsRuntimePath"] ?? @"C:\DENO\deno.exe",
                 notifier: _notifier,
                 stats: _stats);
 

@@ -68,10 +68,10 @@ namespace AnikiChatBot.Modules
         }
 
         public MediaModule(string ytDlpPath, string ffmpegPath, string? cookiesFile,
-            OwnerNotifier? notifier = null, StatsService? stats = null)
+            OwnerNotifier? notifier = null, StatsService? stats = null, string? jsRuntimePath = null)
         {
             _stats = stats;
-            _ytDlp = new YtDlp(ytDlpPath, ffmpegPath, cookiesFile);
+            _ytDlp = new YtDlp(ytDlpPath, ffmpegPath, cookiesFile, jsRuntimePath);
             _ffmpeg = new FFmpeg(ffmpegPath);
             _notifier = notifier;
             _sources =

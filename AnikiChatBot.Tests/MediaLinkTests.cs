@@ -7,6 +7,13 @@ namespace AnikiChatBot.Tests
     {
         private readonly MediaModule _module = new MediaModule("yt-dlp.exe", "ffmpeg.exe", null);
 
+        [Fact]
+        public void Passes_deno_to_yt_dlp_when_present()
+        {
+            Assert.Equal(["--js-runtimes", "deno:C:/DENO/deno.exe"], YtDlp.JsRuntimeArgs("C:/DENO/deno.exe"));
+            Assert.Empty(YtDlp.JsRuntimeArgs(null));
+        }
+
         [Theory]
         [InlineData("https://www.youtube.com/shorts/Mr8EzFVaWA4", typeof(YouTubeSource))]
         [InlineData("https://youtube.com/shorts/Mr8EzFVaWA4?si=abc", typeof(YouTubeSource))]

@@ -14,13 +14,20 @@ namespace AnikiChatBot.Modules.Media
         private readonly string _exePath;
         private readonly string _ffmpegPath;
         private readonly string? _cookiesFile;
+        private readonly string? _jsRuntimePath;
 
-        public YtDlp(string exePath, string ffmpegPath, string? cookiesFile)
+        public YtDlp(string exePath, string ffmpegPath, string? cookiesFile, string? jsRuntimePath = null)
         {
             _exePath = exePath;
             _ffmpegPath = ffmpegPath;
             _cookiesFile = cookiesFile;
+            _jsRuntimePath = !string.IsNullOrEmpty(jsRuntimePath) && File.Exists(jsRuntimePath) ? jsRuntimePath : null;
+            if (!string.IsNullOrEmpty(jsRuntimePath) && _jsRuntimePath == null)
+                Console.Error.WriteLine($"[yt-dlp] Не найден JS-движок {jsRuntimePath}, YouTube может отдавать не все форматы");
         }
+
+        public static IEnumerable<string> JsRuntimeArgs(string? path) =>
+            path == null ? [] : ["--js-runtimes", "deno:" + path];
 
         public async Task<List<MediaItem>> ExtractAsync(string url, string workDir, CancellationToken ct)
         {
@@ -208,7 +215,10 @@ namespace AnikiChatBot.Modules.Media
             var allArgs = new List<string>();
 
             if (addCommonArgs)
+            {
                 allArgs.AddRange(["--no-update", "--no-progress", "--ffmpeg-location", _ffmpegPath]);
+                allArgs.AddRange(JsRuntimeArgs(_jsRuntimePath));
+            }
 
             if (useCookies && HasCookies)
                 allArgs.AddRange(["--cookies", _cookiesFile!]);

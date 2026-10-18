@@ -25,7 +25,12 @@ namespace AnikiChatBot.Modules.Media
         {
             var shorts = ShortsRegex.Match(uri.AbsolutePath);
             if (shorts.Success)
-                return await _ytDlp.ExtractAsync($"https://www.youtube.com/shorts/{shorts.Groups[1].Value}", workDir, ct);
+            {
+                var videos = await _ytDlp.ExtractAsync($"https://www.youtube.com/shorts/{shorts.Groups[1].Value}", workDir, ct);
+                if (!videos.Any(x => x.Kind == MediaKind.Video))
+                    throw new InvalidOperationException("YouTube не отдал видео, только превью");
+                return videos;
+            }
 
             string postId = GetPostId(uri)!;
             string html = await MediaHttp.GetStringAsync($"https://www.youtube.com/post/{postId}", ct, cookie: "SOCS=CAI");
