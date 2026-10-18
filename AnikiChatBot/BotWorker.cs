@@ -482,19 +482,41 @@ namespace AnikiChatBot
             }
         }
 
-        private Task HandlePollingErrorAsync(ITelegramBotClient bot, Exception ex, CancellationToken ct)
+        private int _pollingFailures;
+        private DateTime _lastPollingFailure = DateTime.MinValue;
+        private static readonly TimeSpan PollingFailureReset = TimeSpan.FromMinutes(5);
+
+        public static TimeSpan PollingRetryDelay(int failures) =>
+            TimeSpan.FromSeconds(Math.Min(60, 5 * Math.Pow(2, Math.Clamp(failures - 1, 0, 10))));
+
+        private async Task HandlePollingErrorAsync(ITelegramBotClient bot, Exception ex, CancellationToken ct)
         {
-            var errorMessage = ex switch
+            var now = DateTime.UtcNow;
+            if (now - _lastPollingFailure > PollingFailureReset)
+                _pollingFailures = 0;
+            _lastPollingFailure = now;
+            _pollingFailures++;
+
+            var delay = PollingRetryDelay(_pollingFailures);
+
+            string errorMessage = ex switch
             {
                 ApiRequestException apiEx => $"ERROR Telegram API: [{apiEx.ErrorCode}] {apiEx.Message}",
+                RequestException requestEx => $"[Polling] Нет связи с Telegram: {requestEx.InnerException?.Message ?? requestEx.Message}",
                 _ => ex.ToString()
             };
-            Console.Error.WriteLine(errorMessage);
+            Console.Error.WriteLine($"{errorMessage} (повтор через {delay.TotalSeconds:0} с)");
 
             if (ex is ApiRequestException api)
                 _notifier.Notify($"polling:{api.ErrorCode}", $"Ошибка Telegram API: [{api.ErrorCode}] {api.Message}");
 
-            return Task.CompletedTask;
+            try
+            {
+                await Task.Delay(delay, ct);
+            }
+            catch (OperationCanceledException)
+            {
+            }
         }
     }
 }

@@ -10,6 +10,18 @@ namespace AnikiChatBot.Tests
             Assert.Equal([-300L, -100L, -200L], BotWorker.ParseChatIds(" -300, -100 ,-200,"));
         }
 
+        [Theory]
+        [InlineData(1, 5)]
+        [InlineData(2, 10)]
+        [InlineData(3, 20)]
+        [InlineData(4, 40)]
+        [InlineData(5, 60)]
+        [InlineData(500, 60)]
+        public void Polling_errors_back_off_up_to_a_minute(int failures, int seconds)
+        {
+            Assert.Equal(TimeSpan.FromSeconds(seconds), BotWorker.PollingRetryDelay(failures));
+        }
+
         [Fact]
         public async Task Waits_for_network_with_growing_delays()
         {

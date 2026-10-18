@@ -299,6 +299,9 @@ namespace AnikiChatBot.Modules
                     {
                         await bot.DeleteMessage(message.Chat.Id, message.MessageId, CancellationToken.None);
                     }
+                    catch (Exception ex) when (ex.Message.Contains("message to delete not found", StringComparison.OrdinalIgnoreCase))
+                    {
+                    }
                     catch (Exception ex)
                     {
                         Console.Error.WriteLine($"[Media] Не удалось удалить сообщение со ссылкой (нужно право «Удаление сообщений»): {ex.Message}");

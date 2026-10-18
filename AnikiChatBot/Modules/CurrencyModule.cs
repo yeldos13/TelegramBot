@@ -357,19 +357,6 @@ namespace AnikiChatBot.Modules
                 : null;
         }
 
-        private async Task DeleteMessageAfterDelayAsync(ITelegramBotClient bot, long chatId, int messageId, TimeSpan delay)
-        {
-            try
-            {
-                await Task.Delay(delay);
-                await bot.DeleteMessage(chatId, messageId);
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"[CurrencyModule] Ошибка при автоудалении сообщения: {ex.Message}");
-            }
-        }
-
         private static string GetCurrencyTargetInfo(string code)
         {
             return code switch

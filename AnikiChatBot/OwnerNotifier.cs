@@ -115,8 +115,10 @@ namespace AnikiChatBot
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"[Notifier] Не удалось отправить уведомление владельцу " +
-                    $"(он должен написать боту /start в личку): {ex.Message}");
+                string hint = ex is Telegram.Bot.Exceptions.ApiRequestException { ErrorCode: 400 or 403 }
+                    ? " (он должен написать боту /start в личку)"
+                    : "";
+                Console.Error.WriteLine($"[Notifier] Не удалось отправить уведомление владельцу{hint}: {ex.Message}");
             }
         }
     }
