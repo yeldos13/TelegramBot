@@ -15,6 +15,7 @@ namespace AnikiChatBot
             public int MediaSent { get; set; }
             public int Conversions { get; set; }
             public int RepliesSent { get; set; }
+            public List<string> JoinedMembers { get; set; } = new();
             public List<string> LeftMembers { get; set; } = new();
 
             public Dictionary<long, WeekPlayer> Players { get; set; } = new();
@@ -60,6 +61,12 @@ namespace AnikiChatBot
         public void RecordMedia(long chatId) => Update(chatId, s => s.MediaSent++);
         public void RecordConversion(long chatId) => Update(chatId, s => s.Conversions++);
         public void RecordReply(long chatId) => Update(chatId, s => s.RepliesSent++);
+        public void RecordJoined(long chatId, string name) => Update(chatId, s =>
+        {
+            if (!s.JoinedMembers.Contains(name))
+                s.JoinedMembers.Add(name);
+        });
+
         public void RecordLeft(long chatId, string name) => Update(chatId, s => s.LeftMembers.Add(name));
 
         public void RecordGrowth(long chatId, long userId, string name, int change) =>
@@ -103,6 +110,7 @@ namespace AnikiChatBot
                     MediaSent = s.MediaSent,
                     Conversions = s.Conversions,
                     RepliesSent = s.RepliesSent,
+                    JoinedMembers = s.JoinedMembers.ToList(),
                     LeftMembers = s.LeftMembers.ToList(),
                     Players = s.Players.ToDictionary(p => p.Key,
                         p => new WeekPlayer { Name = p.Value.Name, Growth = p.Value.Growth, DuelWins = p.Value.DuelWins, Messages = p.Value.Messages })
@@ -137,6 +145,10 @@ namespace AnikiChatBot
             sb.AppendLine($"Скачано медиа: {stats.MediaSent}");
             sb.AppendLine($"Конвертаций валют: {stats.Conversions}");
             sb.AppendLine($"Автоответов: {stats.RepliesSent}");
+
+            sb.AppendLine(stats.JoinedMembers.Count == 0
+                ? "Никто не зашёл в чат"
+                : $"Зашли в чат ({stats.JoinedMembers.Count}): {string.Join(", ", stats.JoinedMembers)}");
 
             sb.AppendLine(stats.LeftMembers.Count == 0
                 ? "Никто не покинул чат"

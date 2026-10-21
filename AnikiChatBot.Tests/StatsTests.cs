@@ -62,7 +62,11 @@ namespace AnikiChatBot.Tests
         [Fact]
         public void Builds_report_with_owner_tag()
         {
-            var chat = new StatsService.ChatStats { MediaSent = 12, Conversions = 30, RepliesSent = 5, LeftMembers = ["Вася (@vasya)", "Петя"] };
+            var chat = new StatsService.ChatStats
+            {
+                MediaSent = 12, Conversions = 30, RepliesSent = 5,
+                JoinedMembers = ["Коля (@kolya)"], LeftMembers = ["Вася (@vasya)", "Петя"]
+            };
 
             string report = StatsService.BuildReport(chat, DateTime.Parse("2026-09-20"), DateTime.Parse("2026-09-27"), "@owner");
 
@@ -71,9 +75,24 @@ namespace AnikiChatBot.Tests
                 "Скачано медиа: 12\n" +
                 "Конвертаций валют: 30\n" +
                 "Автоответов: 5\n" +
+                "Зашли в чат (1): Коля (@kolya)\n" +
                 "Покинули чат (2): Вася (@vasya), Петя\n\n" +
                 "@owner",
                 report.Replace("\r\n", "\n"));
+        }
+
+        [Fact]
+        public void Joined_members_are_counted_once_and_reset_weekly()
+        {
+            var stats = new StatsService(_file);
+            stats.RecordJoined(-1, "Коля");
+            stats.RecordJoined(-1, "Коля");
+            stats.RecordJoined(-1, "Маша");
+
+            Assert.Equal(["Коля", "Маша"], stats.GetChat(-1).JoinedMembers);
+
+            stats.StartNewPeriod(DateTime.Now);
+            Assert.Empty(stats.GetChat(-1).JoinedMembers);
         }
 
         [Fact]
@@ -82,6 +101,7 @@ namespace AnikiChatBot.Tests
             string report = StatsService.BuildReport(new StatsService.ChatStats(), DateTime.Now, DateTime.Now, null);
 
             Assert.Contains("Никто не покинул чат", report);
+            Assert.Contains("Никто не зашёл в чат", report);
             Assert.DoesNotContain("@", report);
             Assert.DoesNotContain("Игра", report);
         }

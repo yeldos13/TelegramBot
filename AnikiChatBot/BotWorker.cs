@@ -106,7 +106,7 @@ namespace AnikiChatBot
 
             _membersModule = new MembersModule(_config["OwnerUsername"], _stats);
             _spamModule = new SpamModule(_config["OwnerUsername"], _mutes, _stats);
-            _newcomerModule = new NewcomerLinksModule(_notifier);
+            _newcomerModule = new NewcomerLinksModule(_notifier, stats: _stats);
 
             MediaModule.CleanupTempFiles();
 

@@ -16,12 +16,14 @@ namespace AnikiChatBot.Modules
         private readonly string _filePath;
         private readonly object _lock = new object();
         private readonly OwnerNotifier _notifier;
+        private readonly StatsService? _stats;
 
         private readonly Dictionary<long, Dictionary<long, DateTime>> _joined;
 
-        public NewcomerLinksModule(OwnerNotifier notifier, string filePath = "newcomers.json")
+        public NewcomerLinksModule(OwnerNotifier notifier, string filePath = "newcomers.json", StatsService? stats = null)
         {
             _notifier = notifier;
+            _stats = stats;
             _filePath = filePath;
             _joined = Load() ?? new Dictionary<long, Dictionary<long, DateTime>>();
         }
@@ -76,12 +78,21 @@ namespace AnikiChatBot.Modules
         {
             RecordJoin(chat.Id, user.Id, nowUtc);
 
-            if (RegisterRecentJoin(chat.Id, chat.Title, user.Id, Users.NameWithUsername(user), nowUtc) is { } alert)
+            string name = Users.NameWithUsername(user);
+            Console.WriteLine($"[Newcomer] {name} вошёл в чат {chat.Id}");
+            _stats?.RecordJoined(chat.Id, name);
+            _notifier.Notify($"join:{chat.Id}:{user.Id}", BuildJoinNotice(chat.Title ?? chat.Id.ToString(), name, user.Id));
+
+            if (RegisterRecentJoin(chat.Id, chat.Title, user.Id, name, nowUtc) is { } alert)
             {
                 Console.WriteLine($"[Newcomer] Наплыв новичков в чате {chat.Id}");
                 _notifier.Notify($"raid:{chat.Id}", alert);
             }
         }
+
+        public static string BuildJoinNotice(string chatTitle, string name, long userId) =>
+            $"👋 В «{chatTitle}» новый участник: {name} (id {userId})\n" +
+            $"Первые {NewcomerPeriod.TotalHours:0} ч его ссылки я буду удалять и пересылать тебе.";
 
         internal string? RegisterRecentJoin(long chatId, string? chatTitle, long userId, string name, DateTime nowUtc)
         {

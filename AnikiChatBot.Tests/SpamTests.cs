@@ -177,6 +177,14 @@ namespace AnikiChatBot.Tests
         }
 
         [Fact]
+        public void Join_notice_names_chat_and_member()
+        {
+            Assert.Equal(
+                "👋 В «Чат» новый участник: Вася (@vasya) (id 42)\nПервые 24 ч его ссылки я буду удалять и пересылать тебе.",
+                NewcomerLinksModule.BuildJoinNotice("Чат", "Вася (@vasya)", 42));
+        }
+
+        [Fact]
         public void Fifth_join_within_five_minutes_is_a_raid()
         {
             var module = new NewcomerLinksModule(new OwnerNotifier("owner"), _newcomersFile);
