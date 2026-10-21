@@ -37,6 +37,18 @@ namespace AnikiChatBot.Tests
         }
 
         [Fact]
+        public void Known_owner_is_recognized_by_id_not_username()
+        {
+            var notifier = new OwnerNotifier("owner");
+            notifier.TryRegisterOwner(CreateMessage("owner", 42, ChatType.Private, 42));
+
+            Assert.False(notifier.TryRegisterOwner(CreateMessage("owner", 99, ChatType.Private, 99)));
+            Assert.False(notifier.IsOwner(new User { Id = 99, FirstName = "Чужой", Username = "owner" }));
+            Assert.True(notifier.IsOwner(new User { Id = 42, FirstName = "Я", Username = "renamed" }));
+            Assert.Equal("42", File.ReadAllText("owner_id.txt"));
+        }
+
+        [Fact]
         public void Ignores_other_users()
         {
             var notifier = new OwnerNotifier("owner");

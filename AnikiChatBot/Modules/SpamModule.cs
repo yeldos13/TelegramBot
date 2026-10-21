@@ -16,7 +16,7 @@ namespace AnikiChatBot.Modules
 
         public record Hit(HitKind Kind, List<int> MessageIds);
 
-        private record Entry(string Key, int MessageId, DateTime At);
+        private record Entry(string Key, int MessageId, DateTime At, string? MediaGroupId);
 
         private const int CleanupEvery = 500;
 
@@ -26,12 +26,15 @@ namespace AnikiChatBot.Modules
         private readonly StatsService? _stats;
         private string _botUsername = "";
         private int _registered;
+        private readonly Func<User?, bool> _isOwner;
 
-        public SpamModule(string? ownerUsername, MuteStore? mutes = null, StatsService? stats = null)
+        public SpamModule(string? ownerUsername, MuteStore? mutes = null, StatsService? stats = null, Func<User?, bool>? isOwner = null)
         {
             _ownerUsername = ownerUsername?.TrimStart('@');
             _mutes = mutes ?? new MuteStore();
             _stats = stats;
+            _isOwner = isOwner ?? (user => !string.IsNullOrEmpty(_ownerUsername)
+                && string.Equals(user?.Username, _ownerUsername, StringComparison.OrdinalIgnoreCase));
         }
 
         internal int TrackedUsers => _recent.Count;
@@ -45,7 +48,7 @@ namespace AnikiChatBot.Modules
 
             string key = GetKey(message) ?? $"other:{message.MessageId}";
 
-            if (Register(message.Chat.Id, user.Id, key, message.MessageId, DateTime.UtcNow) is not { } hit)
+            if (Register(message.Chat.Id, user.Id, key, message.MessageId, DateTime.UtcNow, message.MediaGroupId) is not { } hit)
                 return false;
 
             string name = Users.NameWithUsername(user);
@@ -92,8 +95,7 @@ namespace AnikiChatBot.Modules
             if (BotCommands.Parse(message.Text, _botUsername) is not { Command: "unmute" or "mutelist" } command)
                 return false;
 
-            if (string.IsNullOrEmpty(_ownerUsername)
-                || !string.Equals(message.From?.Username, _ownerUsername, StringComparison.OrdinalIgnoreCase))
+            if (!_isOwner(message.From))
             {
                 var refusal = await bot.SendMessage(message.Chat.Id, "Эта команда только для владельца бота.",
                     replyParameters: message.MessageId, cancellationToken: ct);
@@ -179,7 +181,7 @@ namespace AnikiChatBot.Modules
             return string.IsNullOrEmpty(text) ? null : $"text:{text}";
         }
 
-        public Hit? Register(long chatId, long userId, string key, int messageId, DateTime now)
+        public Hit? Register(long chatId, long userId, string key, int messageId, DateTime now, string? mediaGroupId = null)
         {
             if (Interlocked.Increment(ref _registered) % CleanupEvery == 0)
                 RemoveIdleUsers(now);
@@ -189,7 +191,7 @@ namespace AnikiChatBot.Modules
             lock (entries)
             {
                 entries.RemoveAll(e => now - e.At > Window);
-                entries.Add(new Entry(key, messageId, now));
+                entries.Add(new Entry(key, messageId, now, mediaGroupId));
 
                 var same = entries.Where(e => e.Key == key).ToList();
                 if (same.Count >= Threshold)
@@ -199,7 +201,7 @@ namespace AnikiChatBot.Modules
                 }
 
                 var flood = entries.Where(e => now - e.At <= FloodWindow).ToList();
-                if (flood.Count >= FloodThreshold)
+                if (flood.Select(e => e.MediaGroupId ?? $"msg:{e.MessageId}").Distinct().Count() >= FloodThreshold)
                 {
                     entries.Clear();
                     return new Hit(HitKind.Flood, flood.Select(e => e.MessageId).ToList());

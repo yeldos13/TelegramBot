@@ -166,7 +166,7 @@ namespace AnikiChatBot.Modules
 
         public bool IsMorningPostDue(DateOnly today) => _morning?.Date != today;
 
-        public async Task<string?> BuildMorningRatesAsync(DateOnly today)
+        public async Task<(string Text, RatesSnapshot Snapshot)?> BuildMorningRatesAsync(DateOnly today)
         {
             var rates = await GetExchangeRatesAsync();
             if (rates == null)
@@ -174,10 +174,14 @@ namespace AnikiChatBot.Modules
 
             var crypto = await _crypto.GetRubPricesAsync();
             string text = "☀️ Доброе утро!\n" + BuildRatesTable(rates, crypto, _lastRatesUpdate.ToLocalTime(), _morning);
+            var snapshot = new RatesSnapshot { Date = today, Rates = new(rates), Crypto = crypto == null ? null : new(crypto) };
+            return (text, snapshot);
+        }
 
-            _morning = new RatesSnapshot { Date = today, Rates = new(rates), Crypto = crypto == null ? null : new(crypto) };
+        public void MarkMorningPosted(RatesSnapshot snapshot)
+        {
+            _morning = snapshot;
             JsonFile.Save(MorningFilePath, _morning, "Currency");
-            return text;
         }
 
         public static string FormatChange(double delta) =>

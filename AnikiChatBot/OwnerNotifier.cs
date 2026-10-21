@@ -27,10 +27,19 @@ namespace AnikiChatBot
 
         public void Attach(ITelegramBotClient bot) => _bot = bot;
 
+        public bool IsOwner(User? user)
+        {
+            if (user == null)
+                return false;
+            if (_ownerId != null)
+                return user.Id == _ownerId;
+            return !string.IsNullOrEmpty(_ownerUsername)
+                && string.Equals(user.Username, _ownerUsername, StringComparison.OrdinalIgnoreCase);
+        }
+
         public bool TryRegisterOwner(Message message)
         {
-            if (string.IsNullOrEmpty(_ownerUsername) || message.From is not { } from
-                || !string.Equals(from.Username, _ownerUsername, StringComparison.OrdinalIgnoreCase))
+            if (message.From is not { } from || !IsOwner(from))
                 return false;
 
             if (_ownerId != from.Id)

@@ -105,7 +105,7 @@ namespace AnikiChatBot
             _notifier.Attach(botClient);
 
             _membersModule = new MembersModule(_config["OwnerUsername"], _stats);
-            _spamModule = new SpamModule(_config["OwnerUsername"], _mutes, _stats);
+            _spamModule = new SpamModule(_config["OwnerUsername"], _mutes, _stats, _notifier.IsOwner);
             _newcomerModule = new NewcomerLinksModule(_notifier, stats: _stats);
 
             MediaModule.CleanupTempFiles();
@@ -188,10 +188,11 @@ namespace AnikiChatBot
                 {
                     await RunModuleAsync("MorningRates", async () =>
                     {
-                        if (await _currencyModule.BuildMorningRatesAsync(today) is not { } text)
+                        if (await _currencyModule.BuildMorningRatesAsync(today) is not { } morning)
                             return;
 
-                        await RunModuleAsync("MorningRates", () => bot.SendMessage(_mainChatId, text, cancellationToken: ct));
+                        await bot.SendMessage(_mainChatId, morning.Text, cancellationToken: ct);
+                        _currencyModule.MarkMorningPosted(morning.Snapshot);
                         Console.WriteLine("[Currency] Утренние курсы отправлены");
                     });
                 }
@@ -243,14 +244,13 @@ namespace AnikiChatBot
                 {
                     var periodStart = _stats.PeriodStart;
 
-                    foreach (long chatId in _allowedChatIds)
-                    {
-                        string report = StatsService.BuildReport(_stats.GetChat(chatId), periodStart, now,
-                            _config["OwnerUsername"], _pigModule.GetLeader(chatId));
-                        await RunModuleAsync("WeeklyReport", () => bot.SendMessage(chatId, report, cancellationToken: ct));
-                    }
-
+                    var reports = _allowedChatIds.ToDictionary(chatId => chatId, chatId => StatsService.BuildReport(
+                        _stats.GetChat(chatId), periodStart, now, _config["OwnerUsername"], _pigModule.GetLeader(chatId)));
                     _stats.StartNewPeriod(now);
+
+                    foreach (var (chatId, report) in reports)
+                        await RunModuleAsync("WeeklyReport", () => bot.SendMessage(chatId, report, cancellationToken: ct));
+
                     Console.WriteLine("[Stats] Недельный отчёт отправлен");
                 }
 

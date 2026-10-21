@@ -47,6 +47,17 @@ namespace AnikiChatBot.Tests
         }
 
         [Fact]
+        public void Photo_albums_count_as_one_message_for_flood()
+        {
+            var spam = NewSpam();
+
+            for (int i = 1; i <= 10; i++)
+                Assert.Null(spam.Register(-1, 5, $"photo:a{i}", i, Start, "album1"));
+            for (int i = 11; i <= 20; i++)
+                Assert.Null(spam.Register(-1, 5, $"photo:b{i}", i, Start.AddSeconds(5), "album2"));
+        }
+
+        [Fact]
         public void Fifteen_messages_spread_over_time_is_not_flood()
         {
             var spam = NewSpam();

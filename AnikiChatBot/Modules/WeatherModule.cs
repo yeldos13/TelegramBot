@@ -64,12 +64,15 @@ namespace AnikiChatBot.Modules
 
         private async Task<string> BuildReplyAsync(string city, CancellationToken ct)
         {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(TimeSpan.FromSeconds(10));
+
             try
             {
-                if (await FindPlaceAsync(city, ct) is not { } place)
+                if (await FindPlaceAsync(city, timeout.Token) is not { } place)
                     return $"Не нашёл город «{city}».";
 
-                return BuildText(place, await GetForecastAsync(place, ct));
+                return BuildText(place, await GetForecastAsync(place, timeout.Token));
             }
             catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
             {
