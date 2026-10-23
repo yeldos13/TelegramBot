@@ -166,6 +166,8 @@ namespace AnikiChatBot
         }
 
         public static readonly TimeSpan MorningRatesWindow = TimeSpan.FromHours(3);
+        private static readonly TimeSpan SteamCheckInterval = TimeSpan.FromHours(12);
+        private readonly Dictionary<long, string> _pendingPigOfDay = new();
 
         public static TimeOnly ParseTime(string? value, TimeOnly fallback) =>
             TimeOnly.TryParse(value, CultureInfo.InvariantCulture, out var time) ? time : fallback;
@@ -202,7 +204,14 @@ namespace AnikiChatBot
                     foreach (long chatId in _allowedChatIds)
                     {
                         if (_pigModule.PickPigOfDayIfNotChosen(chatId) is { } text)
-                            await RunModuleAsync("PigOfDay", () => bot.SendMessage(chatId, text, cancellationToken: ct));
+                            _pendingPigOfDay[chatId] = text;
+
+                        if (_pendingPigOfDay.TryGetValue(chatId, out var pending))
+                            await RunModuleAsync("PigOfDay", async () =>
+                            {
+                                await bot.SendMessage(chatId, pending, cancellationToken: ct);
+                                _pendingPigOfDay.Remove(chatId);
+                            });
                     }
                 }
 
@@ -282,10 +291,10 @@ namespace AnikiChatBot
                         if (await _steamModule.AnnounceAsync(bot, targets, app, _config["OwnerUsername"], ct))
                             _steamModule.MarkAnnounced(app.Id);
                         else
-                            _notifier.Notify("steam-send", $"Не удалось отправить раздачу Steam «{app.Name}» в {string.Join(", ", targets)}. Попробую снова через час.");
+                            _notifier.Notify("steam-send", $"Не удалось отправить раздачу Steam «{app.Name}» в {string.Join(", ", targets)}. Попробую снова через {SteamCheckInterval.TotalHours:0} ч.");
                     }
                 });
-                await Task.Delay(TimeSpan.FromHours(1), ct);
+                await Task.Delay(SteamCheckInterval, ct);
             }
         }
 
@@ -361,7 +370,7 @@ namespace AnikiChatBot
             if (await HandledByAsync("Moderation", () => _spamModule.HandleModerationCommand(bot, message, ct))
                 || await HandledByAsync("Help", () => _helpModule.HandleCommand(bot, message, ct))
                 || await HandledByAsync("Fun", () => _funModule.HandleCommand(bot, message, ct))
-                || await HandledByAsync("Weather", () => _weatherModule.HandleMessage(bot, message, ct))
+                || await HandledByAsync("Weather", () => Task.FromResult(_weatherModule.HandleMessage(bot, message, ct)))
                 || await HandledByAsync("Pig", () => _pigModule.HandleCommand(bot, message, ct)))
                 return;
 

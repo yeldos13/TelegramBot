@@ -36,17 +36,27 @@ namespace AnikiChatBot.Modules
 
         public void SetBotUsername(string? username) => _botUsername = username ?? "";
 
-        public async Task<bool> HandleMessage(ITelegramBotClient bot, Message message, CancellationToken ct)
+        public bool HandleMessage(ITelegramBotClient bot, Message message, CancellationToken ct)
         {
             if (ParseRequest(message.Text, _botUsername) is not { } request)
                 return false;
 
-            string reply = request.Length == 0
-                ? "Напиши город: /weather Астана или «шма погода Астана»"
-                : await BuildReplyAsync(request, ct);
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    string reply = request.Length == 0
+                        ? "Напиши город: /weather Астана или «шма погода Астана»"
+                        : await BuildReplyAsync(request, ct);
 
-            var sent = await bot.SendMessage(message.Chat.Id, reply, replyParameters: message.MessageId, cancellationToken: ct);
-            Cleanup.DeleteLater(bot, message.Chat.Id, Cleanup.CommandDelay, message.MessageId, sent.MessageId);
+                    var sent = await bot.SendMessage(message.Chat.Id, reply, replyParameters: message.MessageId, cancellationToken: ct);
+                    Cleanup.DeleteLater(bot, message.Chat.Id, Cleanup.CommandDelay, message.MessageId, sent.MessageId);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    Console.Error.WriteLine($"[Weather] Не удалось ответить: {ex.Message}");
+                }
+            }, ct);
             return true;
         }
 
@@ -96,7 +106,8 @@ namespace AnikiChatBot.Modules
                     break;
             }
 
-            _places[key] = place;
+            if (place != null)
+                _places[key] = place;
             return place;
         }
 

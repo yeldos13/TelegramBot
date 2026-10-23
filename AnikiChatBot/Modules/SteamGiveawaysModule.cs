@@ -50,7 +50,10 @@ namespace AnikiChatBot.Modules
 
                 string details = await MediaHttp.GetStringAsync(DetailsUrl + id, ct);
                 if (ParseAppDetails(details, id) is not { } app)
+                {
+                    _seen[id] = now;
                     continue;
+                }
 
                 if (app.IsGiveaway)
                     found.Add(app);

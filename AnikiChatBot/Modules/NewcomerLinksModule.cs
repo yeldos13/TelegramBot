@@ -124,8 +124,15 @@ namespace AnikiChatBot.Modules
             await _notifier.ForwardToOwnerAsync(message.Chat.Id, message.MessageId,
                 $"🔗 Новичок {name} прислал ссылку в «{chatTitle}» — сообщение удалено из чата:", ct);
 
-            await bot.DeleteMessage(message.Chat.Id, message.MessageId, ct);
-            Console.WriteLine($"[Newcomer] Удалена ссылка от {name} в чате {message.Chat.Id}");
+            try
+            {
+                await bot.DeleteMessage(message.Chat.Id, message.MessageId, ct);
+                Console.WriteLine($"[Newcomer] Удалена ссылка от {name} в чате {message.Chat.Id}");
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                Console.Error.WriteLine($"[Newcomer] Не удалось удалить ссылку от {name}: {ex.Message}");
+            }
             return true;
         }
 
