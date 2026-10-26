@@ -269,8 +269,8 @@ namespace AnikiChatBot.Modules
                 string? userText = Interlocked.Exchange(ref post.TextUsed, 1) == 0 ? post.UserText : null;
                 string? caption = post.Quiet ? null : BuildCaption(post.Author, post.AuthorId, uri.ToString(), userText);
 
-                await SendAsync(bot, message, ready, caption, replyToOriginal: post.Quiet, timeout.Token);
-                Interlocked.Increment(ref post.Sent);
+                await SendAsync(bot, message, ready, caption, replyToOriginal: post.Quiet,
+                    onSent: () => Interlocked.Increment(ref post.Sent), timeout.Token);
                 Interlocked.Increment(ref _sentCount);
                 _stats?.RecordMedia(message.Chat.Id);
             }
@@ -353,7 +353,7 @@ namespace AnikiChatBot.Modules
         }
 
         private static async Task SendAsync(ITelegramBotClient bot, Message message, List<MediaItem> items, string? caption,
-            bool replyToOriginal, CancellationToken ct)
+            bool replyToOriginal, Action onSent, CancellationToken ct)
         {
             ReplyParameters? reply = replyToOriginal
                 ? new ReplyParameters { MessageId = message.MessageId, AllowSendingWithoutReply = true }
@@ -373,6 +373,7 @@ namespace AnikiChatBot.Modules
                     replyParameters: reply, messageThreadId: threadId,
                     duration: animation.Duration, width: animation.Width, height: animation.Height,
                     cancellationToken: ct);
+                onSent();
             }
 
             foreach (var chunk in items.Where(x => x.Kind != MediaKind.Animation).Chunk(AlbumSize))
@@ -401,6 +402,7 @@ namespace AnikiChatBot.Modules
                                 duration: item.Duration, width: item.Width, height: item.Height,
                                 supportsStreaming: true, cancellationToken: ct);
                         }
+                        onSent();
                         continue;
                     }
 
@@ -438,6 +440,7 @@ namespace AnikiChatBot.Modules
 
                     await bot.SendMediaGroup(message.Chat.Id, album,
                         replyParameters: reply, messageThreadId: threadId, cancellationToken: ct);
+                    onSent();
                 }
                 finally
                 {
