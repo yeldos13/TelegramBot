@@ -510,13 +510,13 @@ namespace AnikiChatBot
 
             string errorMessage = ex switch
             {
-                ApiRequestException apiEx => $"ERROR Telegram API: [{apiEx.ErrorCode}] {apiEx.Message}",
+                ApiRequestException apiEx => $"[Polling] Telegram API: [{apiEx.ErrorCode}] {apiEx.Message}",
                 RequestException requestEx => $"[Polling] Нет связи с Telegram: {requestEx.InnerException?.Message ?? requestEx.Message}",
                 _ => ex.ToString()
             };
             Console.Error.WriteLine($"{errorMessage} (повтор через {delay.TotalSeconds:0} с)");
 
-            if (ex is ApiRequestException api)
+            if (ex is ApiRequestException { ErrorCode: < 500 } api)
                 _notifier.Notify($"polling:{api.ErrorCode}", $"Ошибка Telegram API: [{api.ErrorCode}] {api.Message}");
 
             try

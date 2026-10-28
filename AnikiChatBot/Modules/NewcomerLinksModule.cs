@@ -76,6 +76,10 @@ namespace AnikiChatBot.Modules
 
         private void OnJoin(Chat chat, User user, DateTime nowUtc)
         {
+            lock (_lock)
+                if (_joined.GetValueOrDefault(chat.Id)?.TryGetValue(user.Id, out var last) == true && nowUtc - last < TimeSpan.FromMinutes(1))
+                    return;
+
             RecordJoin(chat.Id, user.Id, nowUtc);
 
             string name = Users.NameWithUsername(user);
