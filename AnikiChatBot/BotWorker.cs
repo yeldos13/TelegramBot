@@ -172,6 +172,11 @@ namespace AnikiChatBot
         public static TimeOnly ParseTime(string? value, TimeOnly fallback) =>
             TimeOnly.TryParse(value, CultureInfo.InvariantCulture, out var time) ? time : fallback;
 
+        private static readonly string[] WeekdayNames = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"];
+
+        public static string MorningPhotoPath(string folder, DayOfWeek day) =>
+            Path.Combine(folder, WeekdayNames[(int)day] + ".jpg");
+
         public static bool IsInWindow(TimeOnly now, TimeOnly start, TimeSpan window) =>
             now >= start && now - start < window;
 
@@ -193,7 +198,14 @@ namespace AnikiChatBot
                         if (await _currencyModule.BuildMorningRatesAsync(today) is not { } morning)
                             return;
 
-                        await bot.SendMessage(_mainChatId, morning.Text, cancellationToken: ct);
+                        string photo = MorningPhotoPath(_config["MorningPhotosFolder"] ?? "weekdays", today.DayOfWeek);
+                        if (File.Exists(photo))
+                        {
+                            await using var stream = File.OpenRead(photo);
+                            await bot.SendPhoto(_mainChatId, InputFile.FromStream(stream, "morning.jpg"), caption: morning.Text, cancellationToken: ct);
+                        }
+                        else
+                            await bot.SendMessage(_mainChatId, morning.Text, cancellationToken: ct);
                         _currencyModule.MarkMorningPosted(morning.Snapshot);
                         Console.WriteLine("[Currency] Утренние курсы отправлены");
                     });

@@ -126,6 +126,23 @@ namespace AnikiChatBot.Tests
         }
 
         [Fact]
+        public void Morning_text_shows_tenge_before_rubles_without_crypto()
+        {
+            string text = CurrencyModule.BuildMorningText(Rates);
+
+            Assert.StartsWith("Доброе утро коллеги!", text);
+            Assert.Contains($"🇺🇸 1 USD = {480.0:N2} ₸ · {80.0:N2} ₽", text);
+            Assert.DoesNotContain("🪙", text);
+        }
+
+        [Fact]
+        public void Morning_photo_matches_weekday()
+        {
+            Assert.Equal(Path.Combine("weekdays", "пн.jpg"), BotWorker.MorningPhotoPath("weekdays", DayOfWeek.Monday));
+            Assert.Equal(Path.Combine("weekdays", "вс.jpg"), BotWorker.MorningPhotoPath("weekdays", DayOfWeek.Sunday));
+        }
+
+        [Fact]
         public void Morning_rates_window_does_not_wrap_past_midnight()
         {
             Assert.True(BotWorker.IsInWindow(new TimeOnly(23, 0), new TimeOnly(22, 0), BotWorker.MorningRatesWindow));

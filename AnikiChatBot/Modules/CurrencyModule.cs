@@ -172,10 +172,28 @@ namespace AnikiChatBot.Modules
             if (rates == null)
                 return null;
 
-            var crypto = await _crypto.GetRubPricesAsync();
-            string text = "☀️ Доброе утро!\n" + BuildRatesTable(rates, crypto, _lastRatesUpdate.ToLocalTime(), _morning);
-            var snapshot = new RatesSnapshot { Date = today, Rates = new(rates), Crypto = crypto == null ? null : new(crypto) };
-            return (text, snapshot);
+            return (BuildMorningText(rates), new RatesSnapshot { Date = today, Rates = new(rates) });
+        }
+
+        public static string BuildMorningText(Dictionary<string, double> rates)
+        {
+            var sb = new StringBuilder("Доброе утро коллеги! всем продуктивного дня 💪\n\n");
+            bool hasKzt = rates.TryGetValue("KZT", out double kztPerRub);
+
+            foreach (var code in new[] { "USD", "EUR", "CAD", "BYN", "UAH" })
+            {
+                if (!rates.TryGetValue(code, out double perRub))
+                    continue;
+
+                string flag = GetCurrencyTargetInfo(code).Split(' ')[0];
+                string kzt = hasKzt ? $"{kztPerRub / perRub:N2} ₸ · " : "";
+                sb.AppendLine($"{flag} 1 {code} = {kzt}{1 / perRub:N2} ₽");
+            }
+
+            if (hasKzt)
+                sb.AppendLine($"🇷🇺 1 RUB = {kztPerRub:N2} ₸");
+
+            return sb.ToString().TrimEnd();
         }
 
         public void MarkMorningPosted(RatesSnapshot snapshot)
