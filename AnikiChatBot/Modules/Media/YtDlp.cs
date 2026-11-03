@@ -26,6 +26,11 @@ namespace AnikiChatBot.Modules.Media
                 Console.Error.WriteLine($"[yt-dlp] Не найден JS-движок {jsRuntimePath}, YouTube может отдавать не все форматы");
         }
 
+        private static readonly TimeSpan TransientRetryDelay = TimeSpan.FromSeconds(15);
+
+        public static bool IsTransientError(string stderr) =>
+            stderr.Contains("Unable to extract universal data for rehydration", StringComparison.OrdinalIgnoreCase);
+
         public static IEnumerable<string> JsRuntimeArgs(string? path) =>
             path == null ? [] : ["--js-runtimes", "deno:" + path];
 
@@ -33,6 +38,13 @@ namespace AnikiChatBot.Modules.Media
         {
             bool useCookies = false;
             var info = await RunAsync(["-J", "--ignore-no-formats-error", url], ct, useCookies: false);
+
+            if (Failed(info) && IsTransientError(info.StdErr))
+            {
+                Console.WriteLine($"[yt-dlp] {url}: сайт не отдал страницу ({LastLine(info.StdErr)}), повторю через {TransientRetryDelay.TotalSeconds:0} с");
+                await Task.Delay(TransientRetryDelay, ct);
+                info = await RunAsync(["-J", "--ignore-no-formats-error", url], ct, useCookies: false);
+            }
 
             if (Failed(info) && HasCookies)
             {

@@ -8,6 +8,13 @@ namespace AnikiChatBot.Tests
         private readonly MediaModule _module = new MediaModule("yt-dlp.exe", "ffmpeg.exe", null);
 
         [Fact]
+        public void Retries_only_transient_yt_dlp_errors()
+        {
+            Assert.True(YtDlp.IsTransientError("ERROR: [TikTok] 1: Unable to extract universal data for rehydration; please report"));
+            Assert.False(YtDlp.IsTransientError("ERROR: [TikTok] 1: Video not available"));
+        }
+
+        [Fact]
         public void Passes_deno_to_yt_dlp_when_present()
         {
             Assert.Equal(["--js-runtimes", "deno:C:/DENO/deno.exe"], YtDlp.JsRuntimeArgs("C:/DENO/deno.exe"));
