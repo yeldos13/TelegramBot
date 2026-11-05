@@ -115,7 +115,7 @@ namespace AnikiChatBot
             _repeaterModule = new RepeaterModule(_stats);
             _gifModule = new RandomGifModule(
                 _config["GifsFolder"] ?? "gifs",
-                RandomGifModule.ParseChance(_config["RandomGifChance"], 0.03),
+                RandomGifModule.ParseChance(_config["RandomGifChance"], 0.01),
                 TimeSpan.FromMinutes(10));
 
             _mediaModule = new MediaModule(
