@@ -83,6 +83,7 @@ namespace AnikiChatBot
 
         private async Task RunAsync(CancellationToken ct)
         {
+            _stopping = ct;
             bool crashedLastTime = File.Exists(RunningMarkerFile);
             File.WriteAllText(RunningMarkerFile, DateTime.Now.ToString("O"));
 
@@ -161,13 +162,15 @@ namespace AnikiChatBot
                 _notifier.Notify("restart-done", "✅ Перезапущен по команде.");
             }
 
-            await Task.WhenAll(UpdateYtDlpLoopAsync(ct), WeeklyReportLoopAsync(botClient, ct), CookieCheckLoopAsync(ct),
+            await await Task.WhenAny(UpdateYtDlpLoopAsync(ct), WeeklyReportLoopAsync(botClient, ct), CookieCheckLoopAsync(ct),
                 DailyPostsLoopAsync(botClient, ct), SteamGiveawaysLoopAsync(botClient, ct));
         }
 
         public static readonly TimeSpan MorningRatesWindow = TimeSpan.FromHours(3);
         private static readonly TimeSpan SteamCheckInterval = TimeSpan.FromHours(12);
         private readonly Dictionary<long, string> _pendingPigOfDay = new();
+        private readonly Dictionary<long, string> _pendingReports = new();
+        private CancellationToken _stopping;
 
         public static TimeOnly ParseTime(string? value, TimeOnly fallback) =>
             TimeOnly.TryParse(value, CultureInfo.InvariantCulture, out var time) ? time : fallback;
@@ -195,18 +198,18 @@ namespace AnikiChatBot
                 {
                     await RunModuleAsync("MorningRates", async () =>
                     {
-                        if (await _currencyModule.BuildMorningRatesAsync(today) is not { } morning)
+                        if (await _currencyModule.BuildMorningRatesAsync() is not { } morning)
                             return;
 
                         string photo = MorningPhotoPath(_config["MorningPhotosFolder"] ?? "weekdays", today.DayOfWeek);
                         if (File.Exists(photo))
                         {
                             await using var stream = File.OpenRead(photo);
-                            await bot.SendPhoto(_mainChatId, InputFile.FromStream(stream, "morning.jpg"), caption: morning.Text, cancellationToken: ct);
+                            await bot.SendPhoto(_mainChatId, InputFile.FromStream(stream, "morning.jpg"), caption: morning, cancellationToken: ct);
                         }
                         else
-                            await bot.SendMessage(_mainChatId, morning.Text, cancellationToken: ct);
-                        _currencyModule.MarkMorningPosted(morning.Snapshot);
+                            await bot.SendMessage(_mainChatId, morning, cancellationToken: ct);
+                        _currencyModule.MarkMorningPosted(today);
                         Console.WriteLine("[Currency] Утренние курсы отправлены");
                     });
                 }
@@ -265,15 +268,19 @@ namespace AnikiChatBot
                 {
                     var periodStart = _stats.PeriodStart;
 
-                    var reports = _allowedChatIds.ToDictionary(chatId => chatId, chatId => StatsService.BuildReport(
-                        _stats.GetChat(chatId), periodStart, now, _config["OwnerUsername"], _pigModule.GetLeader(chatId)));
+                    foreach (long chatId in _allowedChatIds)
+                        _pendingReports[chatId] = StatsService.BuildReport(
+                            _stats.GetChat(chatId), periodStart, now, _config["OwnerUsername"], _pigModule.GetLeader(chatId));
                     _stats.StartNewPeriod(now);
-
-                    foreach (var (chatId, report) in reports)
-                        await RunModuleAsync("WeeklyReport", () => bot.SendMessage(chatId, report, cancellationToken: ct));
-
-                    Console.WriteLine("[Stats] Недельный отчёт отправлен");
                 }
+
+                foreach (var (chatId, report) in _pendingReports.ToList())
+                    await RunModuleAsync("WeeklyReport", async () =>
+                    {
+                        await bot.SendMessage(chatId, report, cancellationToken: ct);
+                        _pendingReports.Remove(chatId);
+                        Console.WriteLine($"[Stats] Недельный отчёт отправлен в чат {chatId}");
+                    });
 
                 await Task.Delay(TimeSpan.FromMinutes(10), ct);
             }
@@ -496,7 +503,7 @@ namespace AnikiChatBot
             {
                 await action();
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (ex is not OperationCanceledException || !_stopping.IsCancellationRequested)
             {
                 Console.Error.WriteLine($"[{name}] {ex.Message}");
                 _notifier.Notify($"module:{name}", $"Ошибка в модуле {name}: {ex.Message}");

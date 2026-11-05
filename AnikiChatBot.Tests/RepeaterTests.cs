@@ -43,6 +43,10 @@ namespace AnikiChatBot.Tests
         [InlineData("@vasya", "чё надо", false)]
         [InlineData("@vasya иди сюда", "не", false)]
         [InlineData("пиши на test@mail.ru", "ок", true)]
+        [InlineData("привет", "заходи https://spam.com", false)]
+        [InlineData("привет", "заходи t.me/spam", false)]
+        [InlineData("привет", "спроси @vasya", false)]
+        [InlineData("привет", "пиши на test@mail.ru", true)]
         public void Decides_what_to_learn(string trigger, string answer, bool expected)
         {
             Assert.Equal(expected, RepeaterModule.ShouldLearn(trigger, answer));

@@ -114,6 +114,8 @@ namespace AnikiChatBot.Modules
                 || answer.StartsWith('/')
                 || LinkRegex.IsMatch(trigger)
                 || MentionRegex.IsMatch(trigger)
+                || LinkRegex.IsMatch(answer)
+                || MentionRegex.IsMatch(answer)
                 || trigger.Length > MaxTriggerLength
                 || answer.Length > MaxAnswerLength
                 || trigger.Contains(Separator)

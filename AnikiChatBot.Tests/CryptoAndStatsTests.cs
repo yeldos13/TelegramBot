@@ -75,35 +75,6 @@ namespace AnikiChatBot.Tests
             Assert.DoesNotContain("ETH", table);
         }
 
-        [Fact]
-        public void Rates_table_shows_change_since_previous_snapshot()
-        {
-            var previous = new CurrencyModule.RatesSnapshot
-            {
-                Date = new DateOnly(2026, 9, 29),
-                Rates = new(Rates) { ["USD"] = 0.0125 / 1.01, ["EUR"] = 0.0107 },
-                Crypto = new() { ["BTC"] = 7_000_000 * 0.98, ["USDT"] = 80 }
-            };
-
-            string table = CurrencyModule.BuildRatesTable(Rates, Crypto, new DateTime(2026, 9, 30, 9, 0, 0), previous);
-
-            Assert.Contains("В скобках — изменение с 29.09", table);
-            Assert.Contains($"1 USD = {80.0:N2} ₽ (−{0.80:N2})", table);
-            Assert.DoesNotContain("₽ (", table.Split('\n').First(l => l.Contains("1 EUR")));
-            Assert.Contains($"{87500.0:N2} $ · {7000000.0:N2} ₽ (+{3.1:N1}%)", table);
-            Assert.DoesNotContain("%", table.Split('\n').First(l => l.Contains("USDT")));
-        }
-
-        [Theory]
-        [InlineData(0.4, "+0,40")]
-        [InlineData(-1.234, "−1,23")]
-        [InlineData(0.001, "")]
-        public void Formats_rate_change(double delta, string expected)
-        {
-            string text = CurrencyModule.FormatChange(delta).Replace(".", ",");
-            Assert.Equal(expected == "" ? "" : $" ({expected})", text);
-        }
-
         [Theory]
         [InlineData("09:30", 9, 30)]
         [InlineData("7:05", 7, 5)]
