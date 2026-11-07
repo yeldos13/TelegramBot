@@ -38,6 +38,7 @@ namespace AnikiChatBot
         private SpamModule _spamModule = null!;
         private NewcomerLinksModule _newcomerModule = null!;
         private readonly FunModule _funModule;
+        private readonly QuoteModule _quoteModule = new QuoteModule();
         private CurrencyModule _currencyModule = null!;
         private MediaModule _mediaModule = null!;
         private RepeaterModule _repeaterModule = null!;
@@ -142,11 +143,12 @@ namespace AnikiChatBot
             _helpModule.SetBotUsername(me.Username);
             _spamModule.SetBotUsername(me.Username);
             _funModule.SetBotUsername(me.Username);
+            _quoteModule.SetBotUsername(me.Username);
             _weatherModule.SetBotUsername(me.Username);
             _currencyModule.SetBotUsername(me.Username);
 
             await RunModuleAsync("Commands", () => botClient.SetMyCommands(
-                [HelpModule.Command, .. PigModule.Commands, .. FunModule.Commands, .. WeatherModule.Commands, .. CurrencyModule.Commands],
+                [HelpModule.Command, .. PigModule.Commands, .. FunModule.Commands, .. QuoteModule.Commands, .. WeatherModule.Commands, .. CurrencyModule.Commands],
                 scope: new Telegram.Bot.Types.BotCommandScopeAllGroupChats(), cancellationToken: ct));
             Console.WriteLine($"Bot @{me.Username} started. Allowed chats count: {_allowedChatIds.Count}, replies: {_repeaterModule.Count}");
 
@@ -351,7 +353,10 @@ namespace AnikiChatBot
             if (update.CallbackQuery is { Message: { } callbackMessage } query)
             {
                 if (_allowedChatIds.Contains(callbackMessage.Chat.Id))
+                {
                     await RunModuleAsync("Pig", () => _pigModule.HandleCallback(bot, query, ct));
+                    await RunModuleAsync("Quote", () => _quoteModule.HandleCallback(bot, query, ct));
+                }
                 return;
             }
 
@@ -386,9 +391,12 @@ namespace AnikiChatBot
             if (message.From is { IsBot: false } author)
                 _stats.RecordMessage(message.Chat.Id, author.Id, Users.DisplayName(author));
 
+            _quoteModule.Remember(message);
+
             if (await HandledByAsync("Moderation", () => _spamModule.HandleModerationCommand(bot, message, ct))
                 || await HandledByAsync("Help", () => _helpModule.HandleCommand(bot, message, ct))
                 || await HandledByAsync("Fun", () => _funModule.HandleCommand(bot, message, ct))
+                || await HandledByAsync("Quote", () => _quoteModule.HandleCommand(bot, message, ct))
                 || await HandledByAsync("Weather", () => Task.FromResult(_weatherModule.HandleMessage(bot, message, ct)))
                 || await HandledByAsync("Pig", () => _pigModule.HandleCommand(bot, message, ct)))
                 return;
