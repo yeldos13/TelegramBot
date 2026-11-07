@@ -32,16 +32,16 @@ namespace AnikiChatBot.Modules.Quote
             new(0x4F, 0xB5, 0xC9), new(0x4F, 0x9B, 0xE0), new(0xD9, 0x6F, 0xB0),
         ];
 
-        public static byte[] RenderSticker(QuoteCard card)
+        public static byte[] RenderSticker(params QuoteCard[] cards)
         {
-            using var image = Draw(card, StickerSide);
+            using var image = Draw(cards, StickerSide);
             byte[] data = Encode(image, SKEncodedImageFormat.Webp, 90);
             return data.Length <= MaxStickerBytes ? data : Encode(image, SKEncodedImageFormat.Webp, 60);
         }
 
-        public static byte[] RenderPng(QuoteCard card)
+        public static byte[] RenderPng(params QuoteCard[] cards)
         {
-            using var image = Draw(card, PngSide);
+            using var image = Draw(cards, PngSide);
             return Encode(image, SKEncodedImageFormat.Png, 100);
         }
 
@@ -51,27 +51,30 @@ namespace AnikiChatBot.Modules.Quote
             return data.ToArray();
         }
 
-        private static SKImage Draw(QuoteCard card, int side)
+        private sealed record Bubble(
+            QuoteCard Card,
+            bool Header,
+            List<List<Cell>> NameLines,
+            List<List<Cell>> TextLines,
+            List<List<Cell>> ReplyNameLines,
+            List<List<Cell>> ReplyTextLines,
+            SKBitmap? Media,
+            float MediaW,
+            float MediaH,
+            float Width,
+            float Height);
+
+        private static Bubble Measure(TextKit kit, QuoteCard card, bool header, int maxLines, float s)
         {
-            float s = card.Scale;
-            float pad = 14 * s, gap = 8 * s, avatarSize = 44 * s, nameSize = 17 * s, textSize = 21 * s, replySize = 15 * s;
-            float inner = BubbleWidth - 2 * pad;
+            float pad = 14 * s, inner = BubbleWidth - 2 * pad, nameSize = 17 * s, textSize = 21 * s, replySize = 15 * s, replyInset = 10 * s;
 
-            SKColor background = card.Background ?? DefaultBackground;
-            bool light = background.Red * 0.299 + background.Green * 0.587 + background.Blue * 0.114 > 150;
-            SKColor textColor = light ? new SKColor(0x1B, 0x1B, 0x1B) : SKColors.White;
-            SKColor nameColor = NameColors[(int)(Math.Abs(card.ColorSeed) % NameColors.Length)];
-
-            using var kit = new TextKit();
-            var nameLines = kit.Layout(card.Name, kit.Bold, nameSize, inner, 1);
-            var textLines = string.IsNullOrWhiteSpace(card.Text) ? [] : kit.Layout(card.Text, kit.Regular, textSize, inner, MaxTextLines);
-
-            float replyInset = 10 * s;
+            var nameLines = header ? kit.Layout(card.Name, kit.Bold, nameSize, inner, 1) : [];
+            var textLines = string.IsNullOrWhiteSpace(card.Text) ? [] : kit.Layout(card.Text, kit.Regular, textSize, inner, maxLines);
             var replyNameLines = card.ReplyName != null ? kit.Layout(card.ReplyName, kit.Bold, replySize, inner - replyInset, 1) : [];
             var replyTextLines = card.ReplyText != null ? kit.Layout(card.ReplyText, kit.Regular, replySize, inner - replyInset, 1) : [];
             bool hasReply = card.ReplyName != null;
 
-            using var media = Decode(card.Media);
+            var media = Decode(card.Media);
             float mediaW = 0, mediaH = 0;
             if (media != null)
             {
@@ -90,65 +93,112 @@ namespace AnikiChatBot.Modules.Quote
                 60 * s,
             }.Max();
 
-            float nameHeight = nameSize * 1.35f;
-            float textLine = textSize * 1.3f;
+            float height = pad * 2
+                + (header ? nameSize * 1.35f : 0)
+                + (hasReply ? replySize * 1.35f * 2 + 6 * s : 0)
+                + (media != null ? mediaH + 6 * s : 0)
+                + textLines.Count * textSize * 1.3f;
+
+            return new Bubble(card, header, nameLines, textLines, replyNameLines, replyTextLines, media, mediaW, mediaH, contentWidth + 2 * pad, height);
+        }
+
+        private static SKImage Draw(QuoteCard[] cards, int side)
+        {
+            float s = cards[0].Scale;
+            float gap = 8 * s, avatarSize = 44 * s, bubbleGap = 5 * s;
+            int maxLines = Math.Max(4, MaxTextLines / cards.Length);
+
+            SKColor background = cards[0].Background ?? DefaultBackground;
+            bool light = background.Red * 0.299 + background.Green * 0.587 + background.Blue * 0.114 > 150;
+            SKColor textColor = light ? new SKColor(0x1B, 0x1B, 0x1B) : SKColors.White;
+
+            using var kit = new TextKit();
+            var bubbles = cards
+                .Select((card, i) => Measure(kit, card, i == 0 || card.Name != cards[i - 1].Name || card.ColorSeed != cards[i - 1].ColorSeed, maxLines, s))
+                .ToList();
+
+            try
+            {
+                float width = avatarSize + gap + bubbles.Max(b => b.Width);
+                float height = bubbles.Sum(b => b.Height) + bubbleGap * (bubbles.Count - 1);
+
+                float factor = Math.Min(side / Math.Max(width, height), side / 256f);
+                int pixelW = Math.Min(side, (int)Math.Ceiling(width * factor));
+                int pixelH = Math.Min(side, (int)Math.Ceiling(height * factor));
+
+                using var surface = SKSurface.Create(new SKImageInfo(pixelW, pixelH, SKColorType.Rgba8888, SKAlphaType.Premul));
+                var canvas = surface.Canvas;
+                canvas.Clear(SKColors.Transparent);
+                canvas.Scale(factor);
+
+                float top = 0;
+                foreach (var bubble in bubbles)
+                {
+                    DrawBubble(canvas, kit, bubble, avatarSize + gap, top, avatarSize, background, textColor, s);
+                    top += bubble.Height + bubbleGap;
+                }
+
+                return surface.Snapshot();
+            }
+            finally
+            {
+                foreach (var bubble in bubbles)
+                    bubble.Media?.Dispose();
+            }
+        }
+
+        private static void DrawBubble(SKCanvas canvas, TextKit kit, Bubble bubble, float left, float top, float avatarSize, SKColor background, SKColor textColor, float s)
+        {
+            float pad = 14 * s, nameSize = 17 * s, textSize = 21 * s, replySize = 15 * s, replyInset = 10 * s;
             float replyLine = replySize * 1.35f;
-            float replyHeight = hasReply ? replyLine * 2 + 6 * s : 0;
-            float mediaHeight = media != null ? mediaH + 6 * s : 0;
+            SKColor nameColor = NameColors[(int)(Math.Abs(bubble.Card.ColorSeed) % NameColors.Length)];
 
-            float bubbleW = contentWidth + 2 * pad;
-            float bubbleH = pad * 2 + nameHeight + replyHeight + mediaHeight + textLines.Count * textLine;
-            float width = avatarSize + gap + bubbleW;
-            float height = Math.Max(avatarSize, bubbleH);
+            if (bubble.Header)
+            {
+                canvas.Save();
+                canvas.Translate(0, top);
+                DrawAvatar(canvas, kit, bubble.Card, avatarSize, nameColor);
+                canvas.Restore();
+            }
 
-            float factor = Math.Min(side / Math.Max(width, height), side / 256f);
-            int pixelW = Math.Min(side, (int)Math.Ceiling(width * factor));
-            int pixelH = Math.Min(side, (int)Math.Ceiling(height * factor));
-
-            using var surface = SKSurface.Create(new SKImageInfo(pixelW, pixelH, SKColorType.Rgba8888, SKAlphaType.Premul));
-            var canvas = surface.Canvas;
-            canvas.Clear(SKColors.Transparent);
-            canvas.Scale(factor);
-
-            DrawAvatar(canvas, kit, card, avatarSize, nameColor);
-
-            float left = avatarSize + gap;
             using (var paint = new SKPaint { Color = background, IsAntialias = true })
-                canvas.DrawRoundRect(new SKRect(left, 0, left + bubbleW, bubbleH), 18 * s, 18 * s, paint);
+                canvas.DrawRoundRect(new SKRect(left, top, left + bubble.Width, top + bubble.Height), 18 * s, 18 * s, paint);
 
-            float x = left + pad, y = pad;
-            kit.DrawLine(canvas, nameLines[0], x, y, nameSize, nameColor);
-            y += nameHeight;
+            float x = left + pad, y = top + pad;
 
-            if (hasReply)
+            if (bubble.Header)
+            {
+                kit.DrawLine(canvas, bubble.NameLines[0], x, y, nameSize, nameColor);
+                y += nameSize * 1.35f;
+            }
+
+            if (bubble.Card.ReplyName != null)
             {
                 using (var bar = new SKPaint { Color = nameColor, IsAntialias = true })
                     canvas.DrawRoundRect(new SKRect(x, y + 2 * s, x + 3 * s, y + replyLine * 2), 1.5f * s, 1.5f * s, bar);
 
-                kit.DrawLine(canvas, replyNameLines[0], x + replyInset, y, replySize, nameColor);
-                if (replyTextLines.Count > 0)
-                    kit.DrawLine(canvas, replyTextLines[0], x + replyInset, y + replyLine, replySize, textColor);
-                y += replyHeight;
+                kit.DrawLine(canvas, bubble.ReplyNameLines[0], x + replyInset, y, replySize, nameColor);
+                if (bubble.ReplyTextLines.Count > 0)
+                    kit.DrawLine(canvas, bubble.ReplyTextLines[0], x + replyInset, y + replyLine, replySize, textColor);
+                y += replyLine * 2 + 6 * s;
             }
 
-            if (media != null)
+            if (bubble.Media != null)
             {
-                using var mediaImage = SKImage.FromBitmap(media);
-                var rect = new SKRect(x, y, x + mediaW, y + mediaH);
+                using var mediaImage = SKImage.FromBitmap(bubble.Media);
+                var rect = new SKRect(x, y, x + bubble.MediaW, y + bubble.MediaH);
                 canvas.Save();
                 canvas.ClipRoundRect(new SKRoundRect(rect, 10 * s), antialias: true);
                 canvas.DrawImage(mediaImage, rect, new SKSamplingOptions(SKCubicResampler.Mitchell));
                 canvas.Restore();
-                y += mediaHeight;
+                y += bubble.MediaH + 6 * s;
             }
 
-            foreach (var line in textLines)
+            foreach (var line in bubble.TextLines)
             {
                 kit.DrawLine(canvas, line, x, y, textSize, textColor);
-                y += textLine;
+                y += textSize * 1.3f;
             }
-
-            return surface.Snapshot();
         }
 
         private static void DrawAvatar(SKCanvas canvas, TextKit kit, QuoteCard card, float size, SKColor color)

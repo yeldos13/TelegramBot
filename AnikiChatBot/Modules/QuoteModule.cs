@@ -9,7 +9,7 @@ using Telegram.Bot.Types.ReplyMarkups;
 
 namespace AnikiChatBot.Modules
 {
-    public record QuoteFlags(bool Png = false, bool WithReply = false, bool WithMedia = false, float Scale = 1, SKColor? Background = null);
+    public record QuoteFlags(bool Png = false, bool WithReply = false, bool WithMedia = false, float Scale = 1, SKColor? Background = null, int Count = 1);
 
     public class QuoteModule
     {
@@ -22,6 +22,7 @@ namespace AnikiChatBot.Modules
 
         public const string Usage =
             "Ответь командой /q на сообщение. Можно добавить:\n" +
+            "3 — это сообщение и следующие за ним, всего до 10\n" +
             "p — картинка PNG (без оценок и архива)\n" +
             "r — с сообщением, на которое это был ответ\n" +
             "m — с фото или видео из сообщения\n" +
@@ -30,7 +31,8 @@ namespace AnikiChatBot.Modules
 
         private const string CallbackPrefix = "quote:";
         private const int TopSize = 10;
-        private const int RememberedReplies = 5000;
+        private const int RememberedMessages = 1000;
+        private const int MaxQuotedMessages = 10;
 
         private static readonly Dictionary<string, SKColor> NamedColors = new(StringComparer.OrdinalIgnoreCase)
         {
@@ -48,8 +50,7 @@ namespace AnikiChatBot.Modules
 
         private readonly QuoteStore _store;
         private readonly Random _random;
-        private readonly Dictionary<(long Chat, int Message), (string Name, string Text)> _replies = [];
-        private readonly Queue<(long Chat, int Message)> _replyOrder = new();
+        private readonly Dictionary<long, List<Message>> _recent = [];
         private string _botUsername = "";
 
         public QuoteModule(QuoteStore? store = null, Random? random = null)
@@ -62,16 +63,24 @@ namespace AnikiChatBot.Modules
 
         public void Remember(Message message)
         {
-            if (message.ReplyToMessage is not { } target)
+            if (message.Text?.StartsWith('/') == true || (BodyText(message) == null && MediaFileId(message) == null))
                 return;
 
-            var key = (message.Chat.Id, message.MessageId);
-            if (!_replies.TryAdd(key, (Author(target).Name, BodyText(target) ?? "Медиа")))
-                return;
+            if (!_recent.TryGetValue(message.Chat.Id, out var list))
+                _recent[message.Chat.Id] = list = [];
 
-            _replyOrder.Enqueue(key);
-            if (_replyOrder.Count > RememberedReplies)
-                _replies.Remove(_replyOrder.Dequeue());
+            list.Add(message);
+            if (list.Count > RememberedMessages)
+                list.RemoveAt(0);
+        }
+
+        internal IReadOnlyList<Message> Range(Message source, int count)
+        {
+            if (!_recent.TryGetValue(source.Chat.Id, out var list))
+                return [source];
+
+            int start = list.FindIndex(m => m.MessageId == source.MessageId);
+            return start < 0 ? [source] : list.GetRange(start, Math.Min(count, list.Count - start));
         }
 
         public async Task<bool> HandleCommand(ITelegramBotClient bot, Message message, CancellationToken ct)
@@ -133,39 +142,54 @@ namespace AnikiChatBot.Modules
                 return;
             }
 
-            string? text = BodyText(source);
-            string? mediaId = flags.WithMedia || text == null ? MediaFileId(source) : null;
-            if (text == null && mediaId == null)
+            var messages = Range(source, flags.Count);
+            var avatars = new Dictionary<long, byte[]?>();
+            var cards = new List<QuoteCard>();
+
+            foreach (var item in messages)
+            {
+                string? body = BodyText(item);
+                string? mediaId = flags.WithMedia || body == null ? MediaFileId(item) : null;
+                if (body == null && mediaId == null)
+                    continue;
+
+                var from = Author(item);
+                byte[]? avatar = null;
+                if (from.UserId is { } userId && !avatars.TryGetValue(userId, out avatar))
+                    avatars[userId] = avatar = await LoadAvatarAsync(bot, userId, ct);
+
+                var target = flags.WithReply ? item.ReplyToMessage : null;
+
+                cards.Add(new QuoteCard(
+                    from.Name,
+                    from.UserId ?? from.Name.Sum(c => c),
+                    body,
+                    avatar,
+                    mediaId != null ? await DownloadAsync(bot, mediaId, ct) : null,
+                    target != null ? Author(target).Name : null,
+                    target != null ? BodyText(target) ?? "Медиа" : null,
+                    flags.Background,
+                    flags.Scale));
+            }
+
+            if (cards.Count == 0)
             {
                 await ReplyAsync(bot, command, "Тут нечего цитировать: в сообщении нет текста или картинки.", ct);
                 return;
             }
 
-            (string Name, string Text)? reply = flags.WithReply && _replies.TryGetValue((chatId, source.MessageId), out var known) ? known : null;
-            var author = Author(source);
-
-            var card = new QuoteCard(
-                author.Name,
-                author.UserId ?? author.Name.Sum(c => c),
-                text,
-                author.UserId is { } userId ? await LoadAvatarAsync(bot, userId, ct) : null,
-                mediaId != null ? await DownloadAsync(bot, mediaId, ct) : null,
-                reply?.Name,
-                reply?.Text,
-                flags.Background,
-                flags.Scale);
-
+            var quoted = cards.ToArray();
             var replyTo = new ReplyParameters { MessageId = source.MessageId, AllowSendingWithoutReply = true };
 
             if (flags.Png)
             {
-                using var png = new MemoryStream(QuoteRenderer.RenderPng(card));
+                using var png = new MemoryStream(QuoteRenderer.RenderPng(quoted));
                 await bot.SendDocument(chatId, InputFile.FromStream(png, "quote.png"), replyParameters: replyTo, cancellationToken: ct);
             }
             else
             {
                 int id = _store.NextId(chatId);
-                using var webp = new MemoryStream(QuoteRenderer.RenderSticker(card));
+                using var webp = new MemoryStream(QuoteRenderer.RenderSticker(quoted));
                 var sent = await bot.SendSticker(chatId, InputFile.FromStream(webp, "quote.webp"),
                     replyParameters: replyTo, replyMarkup: Keyboard(id, 0, 0), cancellationToken: ct);
 
@@ -174,14 +198,20 @@ namespace AnikiChatBot.Modules
                     Id = id,
                     FileId = sent.Sticker?.FileId ?? "",
                     MessageId = sent.MessageId,
-                    Author = author.Name,
-                    Preview = Preview(text ?? "Медиа"),
+                    Author = Preview(string.Join(", ", quoted.Select(c => c.Name).Distinct())),
+                    Preview = Preview(quoted.FirstOrDefault(c => c.Text != null)?.Text ?? "Медиа"),
                     At = DateTime.UtcNow,
                 });
             }
 
-            if (flags.WithReply && reply == null)
-                await ReplyAsync(bot, command, "Без блока ответа: это не ответ, или сообщение старше последнего запуска бота.", ct);
+            var notes = new List<string>();
+            if (cards.Count < flags.Count)
+                notes.Add($"Собрал {cards.Count} из {flags.Count}: остальных сообщений ещё нет, или бот их не видел после запуска.");
+            if (flags.WithReply && cards.All(c => c.ReplyName == null))
+                notes.Add("Без блока ответа: это не ответ, или сообщение старше последнего запуска бота.");
+
+            if (notes.Count > 0)
+                await ReplyAsync(bot, command, string.Join("\n", notes), ct);
             else
                 Cleanup.DeleteLater(bot, chatId, Cleanup.CommandDelay, command.MessageId);
         }
@@ -245,7 +275,9 @@ namespace AnikiChatBot.Modules
             {
                 string lower = token.ToLowerInvariant();
 
-                if (lower == "p")
+                if (lower.All(char.IsAsciiDigit))
+                    flags = flags with { Count = int.TryParse(lower, out int count) ? Math.Clamp(count, 1, MaxQuotedMessages) : MaxQuotedMessages };
+                else if (lower == "p")
                     flags = flags with { Png = true };
                 else if (lower == "r")
                     flags = flags with { WithReply = true };

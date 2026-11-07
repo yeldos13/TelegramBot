@@ -27,6 +27,86 @@ namespace AnikiChatBot.Tests
         }
 
         [Theory]
+        [InlineData("", 1)]
+        [InlineData("3", 3)]
+        [InlineData("0", 1)]
+        [InlineData("50", 10)]
+        [InlineData("99999999999999", 10)]
+        [InlineData("p 4 r", 4)]
+        public void Message_count_is_limited(string args, int expected)
+        {
+            Assert.True(QuoteModule.TryParseFlags(args, out var flags, out _));
+            Assert.Equal(expected, flags.Count);
+        }
+
+        private static Message Msg(int id, string? text, long chat = -1) =>
+            new() { Id = id, Chat = new Chat { Id = chat }, Text = text };
+
+        [Fact]
+        public void Range_takes_following_messages_of_this_chat_without_commands()
+        {
+            var module = new QuoteModule(new QuoteStore(_file));
+            module.Remember(Msg(1, "раз"));
+            module.Remember(Msg(2, "/roll"));
+            module.Remember(Msg(3, "два"));
+            module.Remember(Msg(4, null));
+            module.Remember(Msg(5, "чужой", chat: -2));
+            module.Remember(Msg(6, "три"));
+            module.Remember(Msg(7, "четыре"));
+
+            Assert.Equal([1, 3, 6], module.Range(Msg(1, "раз"), 3).Select(m => m.Id));
+            Assert.Equal([6, 7], module.Range(Msg(6, "три"), 5).Select(m => m.Id));
+        }
+
+        [Fact]
+        public void Range_does_not_glue_unseen_message_to_later_ones()
+        {
+            var module = new QuoteModule(new QuoteStore(_file));
+            module.Remember(Msg(10, "новое"));
+
+            Assert.Equal([5], module.Range(Msg(5, "старое"), 3).Select(m => m.Id));
+            Assert.Equal([1], module.Range(Msg(1, "из другого чата", chat: -9), 3).Select(m => m.Id));
+        }
+
+        [Fact]
+        public void Old_messages_leave_memory()
+        {
+            var module = new QuoteModule(new QuoteStore(_file));
+            for (int id = 1; id <= 1001; id++)
+                module.Remember(Msg(id, "текст"));
+
+            Assert.Equal([1], module.Range(Msg(1, "текст"), 2).Select(m => m.Id));
+            Assert.Equal([2, 3], module.Range(Msg(2, "текст"), 2).Select(m => m.Id));
+        }
+
+        [Fact]
+        public void Several_messages_fit_one_sticker()
+        {
+            var longText = new string('а', 2000);
+            byte[] data = QuoteRenderer.RenderSticker(
+                new QuoteCard("Вася", 1, longText),
+                new QuoteCard("Вася", 1, "ещё"),
+                new QuoteCard("Петя", 2, longText, ReplyName: "Вася", ReplyText: "ещё"));
+
+            using var bitmap = SKBitmap.Decode(data);
+            Assert.Equal(QuoteRenderer.StickerSide, Math.Max(bitmap.Width, bitmap.Height));
+        }
+
+        [Fact]
+        public void Second_message_of_same_author_has_no_avatar_or_name()
+        {
+            using var single = SKBitmap.Decode(QuoteRenderer.RenderPng(
+                new QuoteCard("Вася", 1, "а"), new QuoteCard("Вася", 1, "б")));
+            int x = 10, y = single.Height - 10;
+
+            Assert.Equal(0, single.GetPixel(x, y).Alpha);
+
+            using var two = SKBitmap.Decode(QuoteRenderer.RenderPng(
+                new QuoteCard("Вася", 1, "а"), new QuoteCard("Петя", 1, "б")));
+            Assert.True(two.Height > single.Height);
+        }
+
+        [Theory]
         [InlineData("s9", 2f)]
         [InlineData("s0.1", 0.5f)]
         public void Scale_is_limited(string args, float expected)
