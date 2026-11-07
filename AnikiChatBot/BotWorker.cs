@@ -144,11 +144,12 @@ namespace AnikiChatBot
             _spamModule.SetBotUsername(me.Username);
             _funModule.SetBotUsername(me.Username);
             _quoteModule.SetBotUsername(me.Username);
+            _repeaterModule.SetBotUsername(me.Username);
             _weatherModule.SetBotUsername(me.Username);
             _currencyModule.SetBotUsername(me.Username);
 
             await RunModuleAsync("Commands", () => botClient.SetMyCommands(
-                [HelpModule.Command, .. PigModule.Commands, .. FunModule.Commands, .. QuoteModule.Commands, .. WeatherModule.Commands, .. CurrencyModule.Commands],
+                [HelpModule.Command, .. PigModule.Commands, .. FunModule.Commands, .. QuoteModule.Commands, .. RepeaterModule.Commands, .. WeatherModule.Commands, .. CurrencyModule.Commands],
                 scope: new Telegram.Bot.Types.BotCommandScopeAllGroupChats(), cancellationToken: ct));
             Console.WriteLine($"Bot @{me.Username} started. Allowed chats count: {_allowedChatIds.Count}, replies: {_repeaterModule.Count}");
 
@@ -397,6 +398,7 @@ namespace AnikiChatBot
                 || await HandledByAsync("Help", () => _helpModule.HandleCommand(bot, message, ct))
                 || await HandledByAsync("Fun", () => _funModule.HandleCommand(bot, message, ct))
                 || await HandledByAsync("Quote", () => _quoteModule.HandleCommand(bot, message, ct))
+                || await HandledByAsync("Repeater", () => _repeaterModule.HandleCommand(bot, message, ct))
                 || await HandledByAsync("Weather", () => Task.FromResult(_weatherModule.HandleMessage(bot, message, ct)))
                 || await HandledByAsync("Pig", () => _pigModule.HandleCommand(bot, message, ct)))
                 return;

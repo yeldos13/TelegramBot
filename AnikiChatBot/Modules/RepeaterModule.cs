@@ -9,7 +9,13 @@ namespace AnikiChatBot.Modules
 {
     public class RepeaterModule
     {
+        public static readonly BotCommand[] Commands =
+        [
+            new BotCommand { Command = "noreply", Description = "Выключить или включить автоответы для себя" },
+        ];
+
         const string DefaultFilePath = "replies.txt";
+        const string DefaultOptOutPath = "noreply.json";
         const string Separator = ":::";
 
         public const int MaxTriggerLength = 200;
@@ -27,23 +33,56 @@ namespace AnikiChatBot.Modules
         readonly PeriodicSaver saver;
 
         readonly StatsService? stats;
+        readonly string optOutPath;
+        readonly HashSet<long> optedOut;
+        string botUsername = "";
 
-        public RepeaterModule(StatsService? stats = null, string filePath = DefaultFilePath)
+        public RepeaterModule(StatsService? stats = null, string filePath = DefaultFilePath, string optOutPath = DefaultOptOutPath)
         {
             this.stats = stats;
             this.filePath = filePath;
+            this.optOutPath = optOutPath;
+            optedOut = JsonFile.Load<HashSet<long>>(optOutPath, "Repeater") ?? [];
             LoadRepliesFromFile();
             saver = new PeriodicSaver(SaveRepliesToFile, saveLock, SaveInterval);
         }
 
         public int Count => repliesDatabase.Count;
 
+        public void SetBotUsername(string? username) => botUsername = username ?? "";
+
+        public async Task<bool> HandleCommand(ITelegramBotClient bot, Message message, CancellationToken ct)
+        {
+            if (BotCommands.Parse(message.Text, botUsername)?.Command != "noreply" || message.From is not { IsBot: false } user)
+                return false;
+
+            string text = ToggleOptOut(user.Id)
+                ? "Выключил автоответы для тебя: не отвечаю заученными фразами и не запоминаю твои сообщения. Включить обратно: /noreply"
+                : "Включил автоответы для тебя. Выключить: /noreply";
+
+            var sent = await bot.SendMessage(message.Chat.Id, text, replyParameters: message.MessageId, cancellationToken: ct);
+            Cleanup.DeleteCommandLater(bot, message, sent);
+            return true;
+        }
+
+        internal bool ToggleOptOut(long userId)
+        {
+            bool off = optedOut.Add(userId);
+            if (!off)
+                optedOut.Remove(userId);
+
+            JsonFile.Save(optOutPath, optedOut, "Repeater");
+            return off;
+        }
+
+        bool IsOptedOut(User? user) => user != null && optedOut.Contains(user.Id);
+
         public async Task HandleRepeaterCommand(ITelegramBotClient bot, Update update, CancellationToken ct)
         {
-            if (update.Message is not { } message || string.IsNullOrWhiteSpace(message.Text))
+            if (update.Message is not { } message || string.IsNullOrWhiteSpace(message.Text) || IsOptedOut(message.From))
                 return;
 
-            if (message.ReplyToMessage is { } replyToMessage && !string.IsNullOrWhiteSpace(replyToMessage.Text))
+            if (message.ReplyToMessage is { } replyToMessage && !string.IsNullOrWhiteSpace(replyToMessage.Text) && !IsOptedOut(replyToMessage.From))
             {
                 string triggerText = Normalize(replyToMessage.Text);
                 string answerText = Normalize(message.Text);

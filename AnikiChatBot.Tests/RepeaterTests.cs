@@ -66,6 +66,62 @@ namespace AnikiChatBot.Tests
             Assert.True(RepeaterModule.HasMention(textMention));
         }
 
+        private RepeaterModule NewModule() => new(filePath: DbPath, optOutPath: Path.Combine(_dir, "noreply.json"));
+
+        private static Telegram.Bot.Types.Update Said(long userId, string text, Telegram.Bot.Types.Message? replyTo = null) => new()
+        {
+            Message = new Telegram.Bot.Types.Message
+            {
+                Text = text,
+                From = new Telegram.Bot.Types.User { Id = userId, FirstName = "Имя" },
+                ReplyToMessage = replyTo,
+            }
+        };
+
+        [Fact]
+        public void Opt_out_toggles_and_survives_restart()
+        {
+            var module = NewModule();
+
+            Assert.True(module.ToggleOptOut(7));
+            Assert.True(module.ToggleOptOut(8));
+            Assert.False(module.ToggleOptOut(8));
+
+            var reloaded = NewModule();
+            Assert.False(reloaded.ToggleOptOut(7));
+            Assert.True(reloaded.ToggleOptOut(8));
+        }
+
+        [Fact]
+        public async Task Opted_out_user_does_not_teach_with_answers_or_triggers()
+        {
+            var module = NewModule();
+            module.ToggleOptOut(7);
+
+            var fromOptedOut = Said(7, "вопрос").Message;
+            var fromOther = Said(8, "другой вопрос").Message;
+
+            await module.HandleRepeaterCommand(null!, Said(7, "ответ", fromOther), default);
+            await module.HandleRepeaterCommand(null!, Said(8, "ответ", fromOptedOut), default);
+            Assert.Equal(0, module.Count);
+
+            await module.HandleRepeaterCommand(null!, Said(8, "ответ", fromOther), default);
+            Assert.Equal(1, module.Count);
+        }
+
+        [Fact]
+        public async Task Opted_out_user_gets_no_auto_reply_and_returning_user_does()
+        {
+            File.WriteAllLines(DbPath, ["привет:::здарова"]);
+            var module = NewModule();
+            module.ToggleOptOut(7);
+
+            await module.HandleRepeaterCommand(null!, Said(7, "привет"), default);
+
+            module.ToggleOptOut(7);
+            await Assert.ThrowsAnyAsync<Exception>(() => module.HandleRepeaterCommand(null!, Said(7, "привет"), default));
+        }
+
         [Fact]
         public void Does_not_learn_too_long_texts()
         {
