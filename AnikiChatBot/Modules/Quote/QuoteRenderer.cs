@@ -5,6 +5,21 @@ using SkiaSharp.HarfBuzz;
 
 namespace AnikiChatBot.Modules.Quote
 {
+    [Flags]
+    public enum QuoteStyle
+    {
+        None = 0,
+        Bold = 1,
+        Italic = 2,
+        Underline = 4,
+        Strike = 8,
+        Spoiler = 16,
+        Mono = 32,
+        Link = 64,
+    }
+
+    public record QuoteSpan(int Offset, int Length, QuoteStyle Style, byte[]? Image = null);
+
     public record QuoteCard(
         string Name,
         long ColorSeed,
@@ -14,7 +29,9 @@ namespace AnikiChatBot.Modules.Quote
         string? ReplyName = null,
         string? ReplyText = null,
         SKColor? Background = null,
-        float Scale = 1);
+        float Scale = 1,
+        IReadOnlyList<QuoteSpan>? Spans = null,
+        bool CropMedia = false);
 
     public static class QuoteRenderer
     {
@@ -23,6 +40,7 @@ namespace AnikiChatBot.Modules.Quote
         public const int MaxTextLines = 30;
         private const int MaxStickerBytes = 500_000;
         private const float BubbleWidth = 420;
+        private const float CropAspect = 9f / 16;
 
         private static readonly SKColor DefaultBackground = new(0x23, 0x2E, 0x3C);
 
@@ -42,6 +60,12 @@ namespace AnikiChatBot.Modules.Quote
         public static byte[] RenderPng(params QuoteCard[] cards)
         {
             using var image = Draw(cards, PngSide);
+            return Encode(image, SKEncodedImageFormat.Png, 100);
+        }
+
+        public static byte[] RenderPhoto(params QuoteCard[] cards)
+        {
+            using var image = Draw(cards, PngSide, SKColors.White);
             return Encode(image, SKEncodedImageFormat.Png, 100);
         }
 
@@ -69,7 +93,7 @@ namespace AnikiChatBot.Modules.Quote
             float pad = 14 * s, inner = BubbleWidth - 2 * pad, nameSize = 17 * s, textSize = 21 * s, replySize = 15 * s, replyInset = 10 * s;
 
             var nameLines = header ? kit.Layout(card.Name, kit.Bold, nameSize, inner, 1) : [];
-            var textLines = string.IsNullOrWhiteSpace(card.Text) ? [] : kit.Layout(card.Text, kit.Regular, textSize, inner, maxLines);
+            var textLines = string.IsNullOrWhiteSpace(card.Text) ? [] : kit.Layout(card.Text, kit.Regular, textSize, inner, maxLines, card.Spans);
             var replyNameLines = card.ReplyName != null ? kit.Layout(card.ReplyName, kit.Bold, replySize, inner - replyInset, 1) : [];
             var replyTextLines = card.ReplyText != null ? kit.Layout(card.ReplyText, kit.Regular, replySize, inner - replyInset, 1) : [];
             bool hasReply = card.ReplyName != null;
@@ -79,8 +103,8 @@ namespace AnikiChatBot.Modules.Quote
             if (media != null)
             {
                 float fit = Math.Min(inner / media.Width, 320 * s / media.Height);
-                mediaW = media.Width * fit;
-                mediaH = media.Height * fit;
+                mediaW = card.CropMedia ? inner : media.Width * fit;
+                mediaH = card.CropMedia ? inner * CropAspect : media.Height * fit;
             }
 
             float contentWidth = new[]
@@ -102,7 +126,15 @@ namespace AnikiChatBot.Modules.Quote
             return new Bubble(card, header, nameLines, textLines, replyNameLines, replyTextLines, media, mediaW, mediaH, contentWidth + 2 * pad, height);
         }
 
-        private static SKImage Draw(QuoteCard[] cards, int side)
+        internal static SKRect CropSource(int width, int height, float aspect)
+        {
+            float cropHeight = Math.Min(height, width * aspect);
+            float cropWidth = cropHeight / aspect;
+            float x = (width - cropWidth) / 2, y = (height - cropHeight) / 2;
+            return new SKRect(x, y, x + cropWidth, y + cropHeight);
+        }
+
+        private static SKImage Draw(QuoteCard[] cards, int side, SKColor? canvasColor = null)
         {
             float s = cards[0].Scale;
             float gap = 8 * s, avatarSize = 44 * s, bubbleGap = 5 * s;
@@ -112,7 +144,7 @@ namespace AnikiChatBot.Modules.Quote
             bool light = background.Red * 0.299 + background.Green * 0.587 + background.Blue * 0.114 > 150;
             SKColor textColor = light ? new SKColor(0x1B, 0x1B, 0x1B) : SKColors.White;
 
-            using var kit = new TextKit();
+            using var kit = new TextKit { LinkColor = light ? new SKColor(0x1A, 0x6F, 0xC4) : new SKColor(0x6A, 0xB3, 0xF3) };
             var bubbles = cards
                 .Select((card, i) => Measure(kit, card, i == 0 || card.Name != cards[i - 1].Name || card.ColorSeed != cards[i - 1].ColorSeed, maxLines, s))
                 .ToList();
@@ -128,7 +160,7 @@ namespace AnikiChatBot.Modules.Quote
 
                 using var surface = SKSurface.Create(new SKImageInfo(pixelW, pixelH, SKColorType.Rgba8888, SKAlphaType.Premul));
                 var canvas = surface.Canvas;
-                canvas.Clear(SKColors.Transparent);
+                canvas.Clear(canvasColor ?? SKColors.Transparent);
                 canvas.Scale(factor);
 
                 float top = 0;
@@ -189,7 +221,10 @@ namespace AnikiChatBot.Modules.Quote
                 var rect = new SKRect(x, y, x + bubble.MediaW, y + bubble.MediaH);
                 canvas.Save();
                 canvas.ClipRoundRect(new SKRoundRect(rect, 10 * s), antialias: true);
-                canvas.DrawImage(mediaImage, rect, new SKSamplingOptions(SKCubicResampler.Mitchell));
+                var source = bubble.Card.CropMedia
+                    ? CropSource(bubble.Media.Width, bubble.Media.Height, CropAspect)
+                    : new SKRect(0, 0, bubble.Media.Width, bubble.Media.Height);
+                canvas.DrawImage(mediaImage, source, rect, new SKSamplingOptions(SKCubicResampler.Mitchell));
                 canvas.Restore();
                 y += bubble.MediaH + 6 * s;
             }
@@ -250,32 +285,55 @@ namespace AnikiChatBot.Modules.Quote
         internal static bool IsEmoji(string grapheme) =>
             grapheme.EnumerateRunes().Any(r => r.Value is 0xFE0F or (>= 0x2600 and <= 0x27BF) or (>= 0x1F000 and <= 0x1FAFF));
 
-        private record Cell(string Text, SKTypeface Typeface, float Width);
+        private record Cell(string Text, SKTypeface Typeface, float Width, QuoteStyle Style = QuoteStyle.None, SKBitmap? Image = null);
 
         private sealed class TextKit : IDisposable
         {
+            public SKColor LinkColor { get; init; }
             public SKTypeface Regular { get; } = SKTypeface.FromFamilyName("Segoe UI");
             public SKTypeface Bold { get; } = SKTypeface.FromFamilyName("Segoe UI", SKFontStyle.Bold);
+            private readonly SKTypeface _italic = SKTypeface.FromFamilyName("Segoe UI", SKFontStyle.Italic);
+            private readonly SKTypeface _boldItalic = SKTypeface.FromFamilyName("Segoe UI", SKFontStyle.BoldItalic);
+            private readonly SKTypeface _mono = SKTypeface.FromFamilyName("Consolas");
             private readonly SKTypeface _emoji = SKTypeface.FromFamilyName("Segoe UI Emoji");
             private readonly Dictionary<string, SKTypeface> _fallbacks = [];
             private readonly Dictionary<SKTypeface, SKShaper> _shapers = [];
+            private readonly Dictionary<byte[], SKBitmap?> _images = [];
 
-            public List<List<Cell>> Layout(string text, SKTypeface main, float size, float maxWidth, int maxLines)
+            public List<List<Cell>> Layout(string text, SKTypeface main, float size, float maxWidth, int maxLines, IReadOnlyList<QuoteSpan>? spans = null)
             {
                 var lines = new List<List<Cell>>();
                 bool truncated = false;
 
-                foreach (string paragraph in text.Trim().Replace("\r", "").Split('\n'))
+                string trimmedEnd = text.TrimEnd();
+                int cursor = trimmedEnd.Length - trimmedEnd.TrimStart().Length;
+
+                foreach (string paragraph in trimmedEnd[cursor..].Replace('\r', ' ').Split('\n'))
                 {
                     var line = new List<Cell>();
                     float width = 0;
                     int lastSpace = -1;
+                    int offset = cursor;
+                    cursor += paragraph.Length + 1;
 
                     var enumerator = StringInfo.GetTextElementEnumerator(paragraph);
                     while (enumerator.MoveNext())
                     {
                         string grapheme = enumerator.GetTextElement();
-                        var cell = Measure(grapheme, main, size);
+                        int at = offset;
+                        offset += grapheme.Length;
+
+                        var covering = spans?.Where(sp => at >= sp.Offset && at < sp.Offset + sp.Length).ToList();
+                        var style = covering?.Aggregate(QuoteStyle.None, (all, sp) => all | sp.Style) ?? QuoteStyle.None;
+                        var imageSpan = covering?.FirstOrDefault(sp => sp.Image != null);
+                        var bitmap = imageSpan != null ? Image(imageSpan.Image!) : null;
+
+                        if (bitmap != null && at != imageSpan!.Offset)
+                            continue;
+
+                        var cell = bitmap != null
+                            ? new Cell(grapheme, _emoji, size * 1.15f, style, bitmap)
+                            : Measure(grapheme, Styled(main, style), size, style);
 
                         if (width + cell.Width > maxWidth && line.Count > 0)
                         {
@@ -322,32 +380,72 @@ namespace AnikiChatBot.Modules.Quote
 
             public void DrawLine(SKCanvas canvas, List<Cell> line, float x, float top, float size, SKColor color)
             {
-                using var paint = new SKPaint { Color = color, IsAntialias = true };
                 float baseline = top + size;
 
                 for (int i = 0; i < line.Count;)
                 {
-                    int start = i;
+                    var first = line[i];
                     var run = new StringBuilder();
                     float runWidth = 0;
-                    while (i < line.Count && line[i].Typeface == line[start].Typeface)
+                    do
                     {
                         run.Append(line[i].Text);
                         runWidth += line[i].Width;
                         i++;
                     }
+                    while (first.Image == null && i < line.Count && line[i].Image == null && line[i].Typeface == first.Typeface && line[i].Style == first.Style);
 
-                    using var font = NewFont(line[start].Typeface, size);
-                    canvas.DrawShapedText(Shaper(line[start].Typeface), run.ToString(), x, baseline, font, paint);
+                    SKColor runColor = first.Style.HasFlag(QuoteStyle.Link) ? LinkColor : color;
+                    using var paint = new SKPaint { Color = runColor, IsAntialias = true };
+
+                    if (first.Style.HasFlag(QuoteStyle.Spoiler))
+                    {
+                        using var veil = new SKPaint { Color = color.WithAlpha(170), IsAntialias = true };
+                        canvas.DrawRoundRect(new SKRect(x, baseline - size, x + runWidth, baseline + size * 0.28f), size * 0.15f, size * 0.15f, veil);
+                    }
+                    else if (first.Image != null)
+                    {
+                        using var image = SKImage.FromBitmap(first.Image);
+                        canvas.DrawImage(image, new SKRect(x, baseline - size, x + size * 1.15f, baseline + size * 0.15f), new SKSamplingOptions(SKCubicResampler.Mitchell));
+                    }
+                    else
+                    {
+                        using var font = NewFont(first.Typeface, size);
+                        canvas.DrawShapedText(Shaper(first.Typeface), run.ToString(), x, baseline, font, paint);
+
+                        float thickness = Math.Max(1, size * 0.06f);
+                        if (first.Style.HasFlag(QuoteStyle.Underline))
+                            canvas.DrawRect(x, baseline + size * 0.12f, runWidth, thickness, paint);
+                        if (first.Style.HasFlag(QuoteStyle.Strike))
+                            canvas.DrawRect(x, baseline - size * 0.32f, runWidth, thickness, paint);
+                    }
+
                     x += runWidth;
                 }
             }
 
-            private Cell Measure(string grapheme, SKTypeface main, float size)
+            private SKTypeface Styled(SKTypeface main, QuoteStyle style)
+            {
+                if (style.HasFlag(QuoteStyle.Mono))
+                    return _mono;
+
+                bool bold = main == Bold || style.HasFlag(QuoteStyle.Bold);
+                bool italic = style.HasFlag(QuoteStyle.Italic);
+                return bold && italic ? _boldItalic : bold ? Bold : italic ? _italic : Regular;
+            }
+
+            private SKBitmap? Image(byte[] data)
+            {
+                if (!_images.TryGetValue(data, out var bitmap))
+                    _images[data] = bitmap = Decode(data);
+                return bitmap;
+            }
+
+            private Cell Measure(string grapheme, SKTypeface main, float size, QuoteStyle style = QuoteStyle.None)
             {
                 var typeface = Pick(grapheme, main);
                 using var font = NewFont(typeface, size);
-                return new Cell(grapheme, typeface, Shaper(typeface).Shape(grapheme, font).Width);
+                return new Cell(grapheme, typeface, Shaper(typeface).Shape(grapheme, font).Width, style);
             }
 
             private SKTypeface Pick(string grapheme, SKTypeface main)
@@ -389,8 +487,13 @@ namespace AnikiChatBot.Modules.Quote
                     shaper.Dispose();
                 foreach (var fallback in _fallbacks.Values)
                     fallback.Dispose();
+                foreach (var image in _images.Values)
+                    image?.Dispose();
                 Regular.Dispose();
                 Bold.Dispose();
+                _italic.Dispose();
+                _boldItalic.Dispose();
+                _mono.Dispose();
                 _emoji.Dispose();
             }
         }

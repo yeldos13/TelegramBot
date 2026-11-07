@@ -14,6 +14,45 @@ namespace AnikiChatBot.Modules.Quote
         public int Score => Up.Count - Down.Count;
     }
 
+    public class QuoteChatSettings
+    {
+        public string? Background { get; set; }
+        public bool RatingOff { get; set; }
+    }
+
+    public class QuoteSettingsStore
+    {
+        private readonly string _filePath;
+        private readonly object _lock = new object();
+        private readonly Dictionary<long, QuoteChatSettings> _chats;
+
+        public QuoteSettingsStore(string filePath = "quote_settings.json")
+        {
+            _filePath = filePath;
+            _chats = JsonFile.Load<Dictionary<long, QuoteChatSettings>>(_filePath, "Quote") ?? [];
+        }
+
+        public QuoteChatSettings Get(long chatId)
+        {
+            lock (_lock)
+                return _chats.TryGetValue(chatId, out var settings)
+                    ? new QuoteChatSettings { Background = settings.Background, RatingOff = settings.RatingOff }
+                    : new QuoteChatSettings();
+        }
+
+        public void Update(long chatId, Action<QuoteChatSettings> change)
+        {
+            lock (_lock)
+            {
+                if (!_chats.TryGetValue(chatId, out var settings))
+                    _chats[chatId] = settings = new QuoteChatSettings();
+
+                change(settings);
+                JsonFile.Save(_filePath, _chats, "Quote");
+            }
+        }
+    }
+
     public class QuoteStore
     {
         private readonly string _filePath;

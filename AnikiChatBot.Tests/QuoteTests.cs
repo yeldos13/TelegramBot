@@ -80,6 +80,161 @@ namespace AnikiChatBot.Tests
         }
 
         [Fact]
+        public void Parses_file_and_crop_flags()
+        {
+            Assert.True(QuoteModule.TryParseFlags("i c", out var flags, out _));
+            Assert.True(flags.File);
+            Assert.True(flags.Crop);
+            Assert.False(flags.Png);
+        }
+
+        [Fact]
+        public void Maps_entities_to_styles_and_skips_unknown_custom_emoji()
+        {
+            var message = new Message
+            {
+                Text = "жир код ссылка 😀",
+                Entities =
+                [
+                    new MessageEntity { Type = Telegram.Bot.Types.Enums.MessageEntityType.Bold, Offset = 0, Length = 3 },
+                    new MessageEntity { Type = Telegram.Bot.Types.Enums.MessageEntityType.Code, Offset = 4, Length = 3 },
+                    new MessageEntity { Type = Telegram.Bot.Types.Enums.MessageEntityType.Url, Offset = 8, Length = 6 },
+                    new MessageEntity { Type = Telegram.Bot.Types.Enums.MessageEntityType.CustomEmoji, Offset = 15, Length = 2, CustomEmojiId = "known" },
+                    new MessageEntity { Type = Telegram.Bot.Types.Enums.MessageEntityType.CustomEmoji, Offset = 15, Length = 2, CustomEmojiId = "unknown" },
+                ]
+            };
+            byte[] image = [1];
+
+            var spans = QuoteModule.Spans(message, new Dictionary<string, byte[]> { ["known"] = image });
+
+            Assert.Equal(
+                [QuoteStyle.Bold, QuoteStyle.Mono, QuoteStyle.Link, QuoteStyle.None],
+                spans.Select(s => s.Style));
+            Assert.Same(image, spans[3].Image);
+        }
+
+        [Fact]
+        public void Uses_caption_entities_for_caption()
+        {
+            var message = new Message
+            {
+                Caption = "подпись",
+                CaptionEntities = [new MessageEntity { Type = Telegram.Bot.Types.Enums.MessageEntityType.Italic, Offset = 0, Length = 7 }]
+            };
+
+            Assert.Equal(QuoteStyle.Italic, Assert.Single(QuoteModule.Spans(message, new Dictionary<string, byte[]>())).Style);
+        }
+
+        [Fact]
+        public void Spoiler_text_is_hidden_in_previews()
+        {
+            var message = new Message
+            {
+                Text = "убийца дворецкий",
+                Entities = [new MessageEntity { Type = Telegram.Bot.Types.Enums.MessageEntityType.Spoiler, Offset = 7, Length = 9 }]
+            };
+
+            Assert.Equal("убийца ░░░░░░░░░", QuoteModule.VisibleText(message));
+            Assert.Null(QuoteModule.VisibleText(new Message { Text = "   " }));
+        }
+
+        [Fact]
+        public void Spoiler_text_is_not_drawn()
+        {
+            var spans = new[] { new QuoteSpan(0, 3, QuoteStyle.Spoiler | QuoteStyle.Mono) };
+
+            byte[] first = QuoteRenderer.RenderPng(new QuoteCard("Вася", 1, "abc", Spans: spans));
+            byte[] second = QuoteRenderer.RenderPng(new QuoteCard("Вася", 1, "xyz", Spans: spans));
+
+            Assert.Equal(first, second);
+        }
+
+        [Fact]
+        public void Style_offsets_account_for_leading_spaces()
+        {
+            var plainSpans = new[] { new QuoteSpan(2, 3, QuoteStyle.Spoiler | QuoteStyle.Mono) };
+
+            byte[] spaced = QuoteRenderer.RenderPng(new QuoteCard("Вася", 1, "  abc", Spans: plainSpans));
+            byte[] other = QuoteRenderer.RenderPng(new QuoteCard("Вася", 1, "  xyz", Spans: plainSpans));
+
+            Assert.Equal(spaced, other);
+        }
+
+        [Fact]
+        public void Custom_emoji_replaces_its_fallback_and_broken_image_is_ignored()
+        {
+            using var surface = SKSurface.Create(new SKImageInfo(16, 16));
+            surface.Canvas.Clear(SKColors.Red);
+            using var snapshot = surface.Snapshot();
+            using var encoded = snapshot.Encode(SKEncodedImageFormat.Png, 100);
+
+            var good = new[] { new QuoteSpan(0, 2, QuoteStyle.None, encoded.ToArray()) };
+            var broken = new[] { new QuoteSpan(0, 2, QuoteStyle.None, [1, 2, 3]) };
+
+            Assert.NotEqual(
+                QuoteRenderer.RenderPng(new QuoteCard("Вася", 1, "😀", Spans: good)),
+                QuoteRenderer.RenderPng(new QuoteCard("Вася", 1, "😀")));
+            Assert.Equal(
+                QuoteRenderer.RenderPng(new QuoteCard("Вася", 1, "😀", Spans: broken)),
+                QuoteRenderer.RenderPng(new QuoteCard("Вася", 1, "😀")));
+        }
+
+        [Fact]
+        public void Photo_has_no_transparency()
+        {
+            using var bitmap = SKBitmap.Decode(QuoteRenderer.RenderPhoto(new QuoteCard("Вася", 1, "текст")));
+            Assert.Equal(SKColors.White, bitmap.GetPixel(bitmap.Width - 1, 0));
+        }
+
+        [Theory]
+        [InlineData(1600, 900, 0, 0, 1600, 900)]
+        [InlineData(1000, 1000, 0, 218.75f, 1000, 781.25f)]
+        [InlineData(1600, 450, 400, 0, 1200, 450)]
+        public void Crop_takes_the_center(int width, int height, float left, float top, float right, float bottom)
+        {
+            var rect = QuoteRenderer.CropSource(width, height, 9f / 16);
+
+            Assert.Equal(left, rect.Left, 0.01f);
+            Assert.Equal(top, rect.Top, 0.01f);
+            Assert.Equal(right, rect.Right, 0.01f);
+            Assert.Equal(bottom, rect.Bottom, 0.01f);
+        }
+
+        [Fact]
+        public void Author_chat_gives_avatar_of_channel_but_not_of_user()
+        {
+            var sender = new User { Id = 1, FirstName = "Вася" };
+            var channel = new Chat { Id = -100, Title = "Канал" };
+
+            Assert.Equal(-100, QuoteModule.AuthorChatId(new Message { From = sender, ForwardOrigin = new MessageOriginChannel { Chat = channel } }));
+            Assert.Equal(-100, QuoteModule.AuthorChatId(new Message { SenderChat = channel }));
+            Assert.Null(QuoteModule.AuthorChatId(new Message { From = sender }));
+            Assert.Null(QuoteModule.AuthorChatId(new Message { SenderChat = channel, ForwardOrigin = new MessageOriginUser { SenderUser = sender } }));
+        }
+
+        [Fact]
+        public void Chat_settings_survive_restart_and_color_can_be_restored()
+        {
+            string path = _file + ".settings";
+            try
+            {
+                var settings = new QuoteSettingsStore(path);
+                settings.Update(-1, s => { s.Background = QuoteModule.ParseColor("красный").ToString(); s.RatingOff = true; });
+
+                var loaded = new QuoteSettingsStore(path).Get(-1);
+
+                Assert.True(loaded.RatingOff);
+                Assert.True(SKColor.TryParse(loaded.Background, out var color));
+                Assert.Equal(QuoteModule.ParseColor("красный"), color);
+                Assert.False(new QuoteSettingsStore(path).Get(-2).RatingOff);
+            }
+            finally
+            {
+                System.IO.File.Delete(path);
+            }
+        }
+
+        [Fact]
         public void Several_messages_fit_one_sticker()
         {
             var longText = new string('а', 2000);
