@@ -35,6 +35,7 @@ namespace AnikiChatBot.Modules
         readonly StatsService? stats;
         readonly string optOutPath;
         readonly HashSet<long> optedOut;
+        readonly ChatRateLimit replyLimit = new(4, TimeSpan.FromSeconds(30));
         string botUsername = "";
 
         public RepeaterModule(StatsService? stats = null, string filePath = DefaultFilePath, string optOutPath = DefaultOptOutPath)
@@ -100,7 +101,7 @@ namespace AnikiChatBot.Modules
             if (HasMention(message))
                 return;
 
-            if (repliesDatabase.TryGetValue(MatchKey(message.Text), out var saved))
+            if (repliesDatabase.TryGetValue(MatchKey(message.Text), out var saved) && replyLimit.TryTake(message.Chat.Id, DateTime.UtcNow))
             {
                 await bot.SendMessage(
                     chatId: message.Chat.Id,

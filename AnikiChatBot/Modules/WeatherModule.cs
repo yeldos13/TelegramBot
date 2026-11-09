@@ -49,8 +49,7 @@ namespace AnikiChatBot.Modules
                         ? "Напиши город: /weather Астана или «шма погода Астана»"
                         : await BuildReplyAsync(request, ct);
 
-                    var sent = await bot.SendMessage(message.Chat.Id, reply, replyParameters: message.MessageId, cancellationToken: ct);
-                    Cleanup.DeleteLater(bot, message.Chat.Id, Cleanup.CommandDelay, message.MessageId, sent.MessageId);
+                    await bot.SendMessage(message.Chat.Id, reply, replyParameters: message.MessageId, cancellationToken: ct);
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {

@@ -123,6 +123,20 @@ namespace AnikiChatBot.Tests
         }
 
         [Fact]
+        public void Rate_limit_allows_four_per_window_per_chat()
+        {
+            var limit = new ChatRateLimit(4, TimeSpan.FromSeconds(30));
+            var t = new DateTime(2026, 1, 1);
+
+            for (int i = 0; i < 4; i++)
+                Assert.True(limit.TryTake(1, t.AddSeconds(i)));
+            Assert.False(limit.TryTake(1, t.AddSeconds(10)));
+            Assert.True(limit.TryTake(2, t.AddSeconds(10)));
+            Assert.True(limit.TryTake(1, t.AddSeconds(30)));
+            Assert.False(limit.TryTake(1, t.AddSeconds(30.5)));
+        }
+
+        [Fact]
         public void Does_not_learn_too_long_texts()
         {
             Assert.False(RepeaterModule.ShouldLearn(new string('а', RepeaterModule.MaxTriggerLength + 1), "ок"));

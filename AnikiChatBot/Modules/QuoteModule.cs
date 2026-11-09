@@ -55,6 +55,7 @@ namespace AnikiChatBot.Modules
         private readonly QuoteSettingsStore _settings;
         private readonly Random _random;
         private readonly Dictionary<long, List<Message>> _recent = [];
+        private readonly ChatRateLimit _randomLimit = new(4, TimeSpan.FromSeconds(30));
         private string _botUsername = "";
 
         public QuoteModule(QuoteStore? store = null, Random? random = null, QuoteSettingsStore? settings = null)
@@ -253,6 +254,12 @@ namespace AnikiChatBot.Modules
 
         private async Task RandomAsync(ITelegramBotClient bot, Message command, CancellationToken ct)
         {
+            if (!_randomLimit.TryTake(command.Chat.Id, DateTime.UtcNow))
+            {
+                Cleanup.DeleteLater(bot, command.Chat.Id, Cleanup.CommandDelay, command.MessageId);
+                return;
+            }
+
             if (_store.RandomTop(command.Chat.Id, _random) is not { } quote)
             {
                 await ReplyAsync(bot, command, NoTopQuotes, ct);
