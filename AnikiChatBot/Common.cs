@@ -74,7 +74,7 @@ namespace AnikiChatBot
             {
                 return File.Exists(path) ? JsonSerializer.Deserialize<T>(File.ReadAllText(path), options) : null;
             }
-            catch (Exception ex)
+            catch (JsonException ex)
             {
                 Console.Error.WriteLine($"[{tag}] Не удалось прочитать {path}: {ex.Message}");
 

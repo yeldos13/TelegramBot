@@ -123,6 +123,24 @@ namespace AnikiChatBot.Tests
         }
 
         [Fact]
+        public void Locked_files_fail_loudly_instead_of_loading_empty()
+        {
+            File.WriteAllLines(DbPath, ["привет:::здарова"]);
+            string jsonPath = Path.Combine(_dir, "data.json");
+            File.WriteAllText(jsonPath, "[1]");
+
+            using (File.Open(DbPath, FileMode.Open, FileAccess.Read, FileShare.None))
+                Assert.ThrowsAny<IOException>(() => NewModule());
+
+            using (File.Open(jsonPath, FileMode.Open, FileAccess.Read, FileShare.None))
+                Assert.ThrowsAny<IOException>(() => JsonFile.Load<List<int>>(jsonPath, "Test"));
+
+            File.WriteAllText(jsonPath, "{broken");
+            Assert.Null(JsonFile.Load<List<int>>(jsonPath, "Test"));
+            Assert.True(File.Exists(jsonPath + ".broken"));
+        }
+
+        [Fact]
         public void Rate_limit_allows_four_per_window_per_chat()
         {
             var limit = new ChatRateLimit(4, TimeSpan.FromSeconds(30));

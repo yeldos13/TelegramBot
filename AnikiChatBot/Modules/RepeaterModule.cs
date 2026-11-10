@@ -219,7 +219,7 @@ namespace AnikiChatBot.Modules
                     Console.WriteLine($"[Repeater] База почищена: убрано мусора {junk}, объединено дублей {merged}. Копия старой базы — {backup}");
                 }
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not IOException and not UnauthorizedAccessException)
             {
                 Console.Error.WriteLine($"Error while reading file {filePath}: {ex.Message}");
             }

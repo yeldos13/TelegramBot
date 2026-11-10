@@ -128,6 +128,13 @@ namespace AnikiChatBot.Modules
                 return;
             }
 
+            if (_settings.Get(message.Chat.Id).RatingOff)
+            {
+                await bot.AnswerCallbackQuery(query.Id, "Оценки выключены", cancellationToken: ct);
+                await bot.EditMessageReplyMarkup(message.Chat.Id, message.MessageId, replyMarkup: null, cancellationToken: ct);
+                return;
+            }
+
             if (_store.Vote(message.Chat.Id, id, query.From.Id, parts[1] == "up") is not { } votes)
             {
                 await bot.AnswerCallbackQuery(query.Id, "Цитата не найдена", cancellationToken: ct);
