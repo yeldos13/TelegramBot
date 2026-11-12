@@ -51,20 +51,8 @@ namespace AnikiChatBot.Modules
         public void HandleJoins(Update update)
         {
             var now = DateTime.UtcNow;
-
-            if (update.Message is { NewChatMembers: { Length: > 0 } members } message)
-            {
-                foreach (var member in members.Where(m => !m.IsBot))
-                    OnJoin(message.Chat, member, now);
-            }
-
-            if (update.ChatMember is { } change
-                && change.OldChatMember.Status is ChatMemberStatus.Left or ChatMemberStatus.Kicked
-                && change.NewChatMember.Status is ChatMemberStatus.Member or ChatMemberStatus.Restricted
-                && !change.NewChatMember.User.IsBot)
-            {
-                OnJoin(change.Chat, change.NewChatMember.User, now);
-            }
+            foreach (var (chat, user) in MembersModule.GetJoinedMembers(update))
+                OnJoin(chat, user, now);
         }
 
         public const int RaidThreshold = 5;

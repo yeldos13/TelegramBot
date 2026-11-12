@@ -44,6 +44,7 @@ namespace AnikiChatBot
         private RepeaterModule _repeaterModule = null!;
         private MembersModule _membersModule = null!;
         private RandomGifModule _gifModule = null!;
+        private WelcomeModule _welcomeModule = null!;
 
         public BotWorker(IConfiguration config)
         {
@@ -118,6 +119,13 @@ namespace AnikiChatBot
                 _config["GifsFolder"] ?? "gifs",
                 RandomGifModule.ParseChance(_config["RandomGifChance"], 0.01),
                 TimeSpan.FromMinutes(10));
+
+            _welcomeModule = new WelcomeModule(
+                _config["WelcomeVideo"] ?? "welcome.mp4",
+                _config["FfmpegPath"] ?? @"C:\FFMPEG\bin\ffmpeg.exe",
+                _config["WelcomeFont"] ?? @"C:\Windows\Fonts\segoeuib.ttf");
+            if (!_welcomeModule.Enabled)
+                Console.WriteLine("[Welcome] Нет видео, шрифта или ffmpeg — приветствие выключено");
 
             _mediaModule = new MediaModule(
                 ytDlpPath: _config["YtDlpPath"] ?? @"C:\YTDLP\yt-dlp.exe",
@@ -346,6 +354,7 @@ namespace AnikiChatBot
                 if (_allowedChatIds.Contains(change.Chat.Id))
                 {
                     _newcomerModule.HandleJoins(update);
+                    _welcomeModule.HandleJoins(bot, update, ct);
                     await RunModuleAsync("Members", () => _membersModule.HandleMembersUpdate(bot, update, ct));
                 }
                 return;
@@ -382,6 +391,7 @@ namespace AnikiChatBot
             if (message.NewChatMembers is { Length: > 0 })
             {
                 _newcomerModule.HandleJoins(update);
+                _welcomeModule.HandleJoins(bot, update, ct);
                 return;
             }
 

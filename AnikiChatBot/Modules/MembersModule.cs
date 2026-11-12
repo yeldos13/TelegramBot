@@ -75,6 +75,19 @@ namespace AnikiChatBot.Modules
             return null;
         }
 
+        public static IEnumerable<(Chat Chat, User User)> GetJoinedMembers(Update update)
+        {
+            if (update.Message is { NewChatMembers: { Length: > 0 } members } message)
+                foreach (var member in members.Where(m => !m.IsBot))
+                    yield return (message.Chat, member);
+
+            if (update.ChatMember is { } change
+                && change.OldChatMember.Status is ChatMemberStatus.Left or ChatMemberStatus.Kicked
+                && change.NewChatMember.Status is ChatMemberStatus.Member or ChatMemberStatus.Restricted
+                && !change.NewChatMember.User.IsBot)
+                yield return (change.Chat, change.NewChatMember.User);
+        }
+
         public static string BuildLeaveText(User user, string? tagUsername)
         {
             string text = $"{Users.NameWithUsername(user)} покинул(а) чат";
