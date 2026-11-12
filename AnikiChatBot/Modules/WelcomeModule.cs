@@ -13,6 +13,7 @@ namespace AnikiChatBot.Modules
         private const float FontSize = 26;
         private const float MaxTextWidth = 570;
         private const int TextTop = 290;
+        private const int LineHeight = 33;
         private const int TextFromFrame = 36;
         private const int MaxNameLength = 32;
         private static readonly TimeSpan DuplicateWindow = TimeSpan.FromMinutes(2);
@@ -40,16 +41,22 @@ namespace AnikiChatBot.Modules
             }
         }
 
-        internal (string Text, float Size) BuildText(User user)
+        internal (string[] Lines, float Size) BuildText(User user)
         {
             using var typeface = SKTypeface.FromFile(fontPath);
             string name = string.Concat((user.Username ?? Users.DisplayName(user)).EnumerateRunes()
                 .Where(r => typeface.ContainsGlyph(r.Value)).Take(MaxNameLength)).Trim();
+            if (name.Length == 0)
+                name = "newbie";
 
-            string text = $"Welcome to the group! {(name.Length > 0 ? name : "newbie")}-kun!";
             using var font = new SKFont(typeface, FontSize);
-            float width = font.MeasureText(text);
-            return (text, width > MaxTextWidth ? FontSize * MaxTextWidth / width : FontSize);
+            string oneLine = $"Welcome to the group! {name}-kun!";
+            if (font.MeasureText(oneLine) <= MaxTextWidth)
+                return ([oneLine], FontSize);
+
+            string[] lines = ["Welcome to the group!", $"{name}-kun!"];
+            float widest = lines.Max(line => font.MeasureText(line));
+            return (lines, widest > MaxTextWidth ? FontSize * MaxTextWidth / widest : FontSize);
         }
 
         private static string FilterPath(string path) => "'" + Path.GetFullPath(path).Replace('\\', '/').Replace(":", "\\:") + "'";
@@ -57,13 +64,21 @@ namespace AnikiChatBot.Modules
         internal async Task<string?> RenderAsync(User user, string dir, CancellationToken ct)
         {
             Directory.CreateDirectory(dir);
-            var (text, size) = BuildText(user);
-            string textFile = Path.Combine(dir, "text.txt");
+            var (lines, size) = BuildText(user);
             string output = Path.Combine(dir, "welcome.mp4");
-            await File.WriteAllTextAsync(textFile, text, new UTF8Encoding(false), ct);
+            var filters = new List<string>();
 
-            string drawtext = string.Create(CultureInfo.InvariantCulture,
-                $"drawtext=fontfile={FilterPath(fontPath)}:textfile={FilterPath(textFile)}:expansion=none:fontsize={size:0.#}:fontcolor=white:borderw=2:bordercolor=black:x=(w-tw)/2:y={TextTop + (FontSize - size) / 2:0}:enable='gte(n,{TextFromFrame})'");
+            for (int i = 0; i < lines.Length; i++)
+            {
+                string textFile = Path.Combine(dir, $"text{i}.txt");
+                await File.WriteAllTextAsync(textFile, lines[i], new UTF8Encoding(false), ct);
+
+                float y = TextTop + (FontSize - size) / 2 - (lines.Length - 1 - i) * LineHeight;
+                filters.Add(string.Create(CultureInfo.InvariantCulture,
+                    $"drawtext=fontfile={FilterPath(fontPath)}:textfile={FilterPath(textFile)}:expansion=none:fontsize={size:0.#}:fontcolor=white:borderw=2:bordercolor=black:x=(w-tw)/2:y={y:0}:enable='gte(n,{TextFromFrame})'"));
+            }
+
+            string drawtext = string.Join(",", filters);
 
             var result = await ProcessRunner.RunAsync(ffmpegPath,
                 ["-y", "-v", "error", "-i", videoPath, "-vf", drawtext, "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",

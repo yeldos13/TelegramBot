@@ -31,10 +31,17 @@ namespace AnikiChatBot.Tests
 
             var module = new WelcomeModule("welcome.mp4", Ffmpeg, Font);
 
-            Assert.Equal(("Welcome to the group! riona-kun!", 26f), module.BuildText(new User { Username = "riona", FirstName = "Риона" }));
-            Assert.Equal("Welcome to the group! Аня-kun!", module.BuildText(new User { FirstName = "Аня 🦊" }).Text);
-            Assert.Equal("Welcome to the group! newbie-kun!", module.BuildText(new User { FirstName = "🦊" }).Text);
-            Assert.True(module.BuildText(new User { Username = "a_very_long_username_for_tests_x" }).Size < 26f);
+            var short_ = module.BuildText(new User { Username = "riona", FirstName = "Риона" });
+            Assert.Equal(["Welcome to the group! riona-kun!"], short_.Lines);
+            Assert.Equal(26f, short_.Size);
+            Assert.Equal(["Welcome to the group! Аня-kun!"], module.BuildText(new User { FirstName = "Аня 🦊" }).Lines);
+            Assert.Equal(["Welcome to the group! newbie-kun!"], module.BuildText(new User { FirstName = "🦊" }).Lines);
+
+            var long_ = module.BuildText(new User { Username = "Konstantin_Konstantinopolsky" });
+            Assert.Equal(["Welcome to the group!", "Konstantin_Konstantinopolsky-kun!"], long_.Lines);
+            Assert.Equal(26f, long_.Size);
+
+            Assert.True(module.BuildText(new User { FirstName = new string('Ш', 32) }).Size < 26f);
         }
 
         [Fact]
@@ -44,11 +51,15 @@ namespace AnikiChatBot.Tests
             if (video == null || !File.Exists(video) || !File.Exists(Ffmpeg) || !File.Exists(Font))
                 return;
 
-            string dir = Path.Combine(Path.GetTempPath(), "aniki_welcome_test");
-            var output = await new WelcomeModule(video, Ffmpeg, Font).RenderAsync(new User { Username = "riona" }, dir, default);
+            var module = new WelcomeModule(video, Ffmpeg, Font);
+            foreach (var (folder, name) in new[] { ("short", "riona"), ("long", "Konstantin_Konstantinopolsky") })
+            {
+                string dir = Path.Combine(Path.GetTempPath(), "aniki_welcome_test", folder);
+                var output = await module.RenderAsync(new User { Username = name }, dir, default);
 
-            Assert.NotNull(output);
-            Assert.True(new FileInfo(output).Length > 10_000);
+                Assert.NotNull(output);
+                Assert.True(new FileInfo(output).Length > 10_000);
+            }
         }
     }
 }
