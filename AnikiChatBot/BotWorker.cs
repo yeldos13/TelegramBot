@@ -123,7 +123,8 @@ namespace AnikiChatBot
             _welcomeModule = new WelcomeModule(
                 _config["WelcomeVideo"] ?? "welcome.mp4",
                 _config["FfmpegPath"] ?? @"C:\FFMPEG\bin\ffmpeg.exe",
-                _config["WelcomeFont"] ?? @"C:\Windows\Fonts\segoeuib.ttf");
+                _config["WelcomeFont"] ?? @"C:\Windows\Fonts\segoeuib.ttf",
+                _repeaterModule.IsOptedOut);
             if (!_welcomeModule.Enabled)
                 Console.WriteLine("[Welcome] Нет видео, шрифта или ffmpeg — приветствие выключено");
 
@@ -416,7 +417,8 @@ namespace AnikiChatBot
             await RunModuleAsync("Currency", () => _currencyModule.HandleCurrencyCommand(bot, update, ct));
             await RunModuleAsync("Media", () => _mediaModule.HandleMediaCommand(bot, update, ct));
             await RunModuleAsync("Repeater", () => _repeaterModule.HandleRepeaterCommand(bot, update, ct));
-            await RunModuleAsync("Gif", () => _gifModule.HandleMessage(bot, message, ct));
+            if (!_repeaterModule.IsOptedOut(message.From))
+                await RunModuleAsync("Gif", () => _gifModule.HandleMessage(bot, message, ct));
         }
 
         private async Task HandleOwnerCommandAsync(ITelegramBotClient bot, Message message, CancellationToken ct)

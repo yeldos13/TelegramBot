@@ -58,7 +58,7 @@ namespace AnikiChatBot.Modules
                 return false;
 
             string text = ToggleOptOut(user.Id)
-                ? "Выключил автоответы для тебя: не отвечаю заученными фразами и не запоминаю твои сообщения. Включить обратно: /noreply"
+                ? "Выключил автоответы для тебя: не отвечаю заученными фразами и гифками и не запоминаю твои сообщения. Включить обратно: /noreply"
                 : "Включил автоответы для тебя. Выключить: /noreply";
 
             var sent = await bot.SendMessage(message.Chat.Id, text, replyParameters: message.MessageId, cancellationToken: ct);
@@ -76,7 +76,7 @@ namespace AnikiChatBot.Modules
             return off;
         }
 
-        bool IsOptedOut(User? user) => user != null && optedOut.Contains(user.Id);
+        public bool IsOptedOut(User? user) => user != null && optedOut.Contains(user.Id);
 
         public async Task HandleRepeaterCommand(ITelegramBotClient bot, Update update, CancellationToken ct)
         {

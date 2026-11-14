@@ -8,7 +8,7 @@ using Telegram.Bot.Types;
 
 namespace AnikiChatBot.Modules
 {
-    public class WelcomeModule(string videoPath, string ffmpegPath, string fontPath)
+    public class WelcomeModule(string videoPath, string ffmpegPath, string fontPath, Func<User, bool>? skip = null)
     {
         private const float FontSize = 26;
         private const float MaxTextWidth = 570;
@@ -34,7 +34,7 @@ namespace AnikiChatBot.Modules
 
             foreach (var (chat, user) in MembersModule.GetJoinedMembers(update))
             {
-                if (!_recent.TryAdd((chat.Id, user.Id), now) || !_limit.TryTake(chat.Id, now))
+                if (skip?.Invoke(user) == true || !_recent.TryAdd((chat.Id, user.Id), now) || !_limit.TryTake(chat.Id, now))
                     continue;
 
                 _ = Task.Run(() => SendAsync(bot, chat.Id, user, ct), ct);
