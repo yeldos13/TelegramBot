@@ -58,7 +58,7 @@ namespace AnikiChatBot.Modules
                 return false;
 
             string text = ToggleOptOut(user.Id)
-                ? "Выключил автоответы для тебя: не отвечаю заученными фразами и гифками и не запоминаю твои сообщения. Включить обратно: /noreply"
+                ? "Выключил автоответы для тебя: не отвечаю заученными фразами и случайными гифками и не запоминаю твои сообщения. Включить обратно: /noreply"
                 : "Включил автоответы для тебя. Выключить: /noreply";
 
             var sent = await bot.SendMessage(message.Chat.Id, text, replyParameters: message.MessageId, cancellationToken: ct);

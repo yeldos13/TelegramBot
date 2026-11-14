@@ -123,8 +123,7 @@ namespace AnikiChatBot
             _welcomeModule = new WelcomeModule(
                 _config["WelcomeVideo"] ?? "welcome.mp4",
                 _config["FfmpegPath"] ?? @"C:\FFMPEG\bin\ffmpeg.exe",
-                _config["WelcomeFont"] ?? @"C:\Windows\Fonts\segoeuib.ttf",
-                _repeaterModule.IsOptedOut);
+                _config["WelcomeFont"] ?? @"C:\Windows\Fonts\segoeuib.ttf");
             if (!_welcomeModule.Enabled)
                 Console.WriteLine("[Welcome] Нет видео, шрифта или ffmpeg — приветствие выключено");
 
