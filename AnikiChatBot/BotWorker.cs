@@ -33,6 +33,7 @@ namespace AnikiChatBot
         private readonly MuteStore _mutes = new MuteStore();
         private readonly PigModule _pigModule;
         private readonly HelpModule _helpModule = new HelpModule();
+        private readonly ChatSettingsModule _chatSettings = new ChatSettingsModule();
         private readonly SteamGiveawaysModule _steamModule = new SteamGiveawaysModule();
         private readonly WeatherModule _weatherModule = new WeatherModule();
         private SpamModule _spamModule = null!;
@@ -149,6 +150,7 @@ namespace AnikiChatBot
             _membersModule.SetBotId(me.Id);
             _pigModule.SetBotUsername(me.Username);
             _helpModule.SetBotUsername(me.Username);
+            _chatSettings.SetBotUsername(me.Username);
             _spamModule.SetBotUsername(me.Username);
             _funModule.SetBotUsername(me.Username);
             _quoteModule.SetBotUsername(me.Username);
@@ -157,7 +159,7 @@ namespace AnikiChatBot
             _currencyModule.SetBotUsername(me.Username);
 
             await RunModuleAsync("Commands", () => botClient.SetMyCommands(
-                [HelpModule.Command, .. PigModule.Commands, .. FunModule.Commands, .. QuoteModule.Commands, .. RepeaterModule.Commands, .. WeatherModule.Commands, .. CurrencyModule.Commands],
+                [HelpModule.Command, .. PigModule.Commands, .. FunModule.Commands, .. QuoteModule.Commands, .. RepeaterModule.Commands, .. WeatherModule.Commands, .. CurrencyModule.Commands, .. ChatSettingsModule.Commands],
                 scope: new Telegram.Bot.Types.BotCommandScopeAllGroupChats(), cancellationToken: ct));
             Console.WriteLine($"Bot @{me.Username} started. Allowed chats count: {_allowedChatIds.Count}, replies: {_repeaterModule.Count}");
 
@@ -354,7 +356,8 @@ namespace AnikiChatBot
                 if (_allowedChatIds.Contains(change.Chat.Id))
                 {
                     _newcomerModule.HandleJoins(update);
-                    _welcomeModule.HandleJoins(bot, update, ct);
+                    if (_chatSettings.IsOn(change.Chat.Id, ChatSettingsModule.Welcome))
+                        _welcomeModule.HandleJoins(bot, update, ct);
                     await RunModuleAsync("Members", () => _membersModule.HandleMembersUpdate(bot, update, ct));
                 }
                 return;
@@ -391,7 +394,8 @@ namespace AnikiChatBot
             if (message.NewChatMembers is { Length: > 0 })
             {
                 _newcomerModule.HandleJoins(update);
-                _welcomeModule.HandleJoins(bot, update, ct);
+                if (_chatSettings.IsOn(message.Chat.Id, ChatSettingsModule.Welcome))
+                    _welcomeModule.HandleJoins(bot, update, ct);
                 return;
             }
 
@@ -406,6 +410,7 @@ namespace AnikiChatBot
 
             if (await HandledByAsync("Moderation", () => _spamModule.HandleModerationCommand(bot, message, ct))
                 || await HandledByAsync("Help", () => _helpModule.HandleCommand(bot, message, ct))
+                || await HandledByAsync("Settings", () => _chatSettings.HandleCommand(bot, message, ct))
                 || await HandledByAsync("Fun", () => _funModule.HandleCommand(bot, message, ct))
                 || await HandledByAsync("Quote", () => _quoteModule.HandleCommand(bot, message, ct))
                 || await HandledByAsync("Repeater", () => _repeaterModule.HandleCommand(bot, message, ct))
@@ -415,8 +420,9 @@ namespace AnikiChatBot
 
             await RunModuleAsync("Currency", () => _currencyModule.HandleCurrencyCommand(bot, update, ct));
             await RunModuleAsync("Media", () => _mediaModule.HandleMediaCommand(bot, update, ct));
-            await RunModuleAsync("Repeater", () => _repeaterModule.HandleRepeaterCommand(bot, update, ct));
-            if (!_repeaterModule.IsOptedOut(message.From))
+            if (_chatSettings.IsOn(message.Chat.Id, ChatSettingsModule.Replies))
+                await RunModuleAsync("Repeater", () => _repeaterModule.HandleRepeaterCommand(bot, update, ct));
+            if (!_repeaterModule.IsOptedOut(message.From) && _chatSettings.IsOn(message.Chat.Id, ChatSettingsModule.Gifs))
                 await RunModuleAsync("Gif", () => _gifModule.HandleMessage(bot, message, ct));
         }
 

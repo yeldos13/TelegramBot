@@ -1,8 +1,9 @@
 namespace AnikiChatBot.Modules
 {
-    public class ChatRateLimit(int limit, TimeSpan window)
+    public class ChatRateLimit(int limit, TimeSpan window, string? path = null)
     {
-        private readonly Dictionary<long, Queue<DateTime>> _sent = [];
+        private readonly Dictionary<long, Queue<DateTime>> _sent =
+            (path == null ? null : JsonFile.Load<Dictionary<long, Queue<DateTime>>>(path, "RateLimit")) ?? [];
 
         public bool TryTake(long chatId, DateTime now)
         {
@@ -18,6 +19,8 @@ namespace AnikiChatBot.Modules
                     return false;
 
                 times.Enqueue(now);
+                if (path != null)
+                    JsonFile.Save(path, _sent, "RateLimit");
                 return true;
             }
         }

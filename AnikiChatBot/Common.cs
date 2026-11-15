@@ -1,9 +1,26 @@
+using Telegram.Bot;
+using Telegram.Bot.Types.Enums;
 using System.Text.Json;
 using Telegram.Bot.Types;
 
 namespace AnikiChatBot
 {
     public record ParsedCommand(string Command, string Args);
+
+    public static class ChatAdmins
+    {
+        public static async Task<bool> IsAdminAsync(ITelegramBotClient bot, Message command, CancellationToken ct)
+        {
+            if (command.SenderChat?.Id == command.Chat.Id)
+                return true;
+
+            if (command.From is not { } user)
+                return false;
+
+            var member = await bot.GetChatMember(command.Chat.Id, user.Id, ct);
+            return member.Status is ChatMemberStatus.Administrator or ChatMemberStatus.Creator;
+        }
+    }
 
     public static class BotCommands
     {
@@ -32,10 +49,10 @@ namespace AnikiChatBot
     {
         public static readonly TimeSpan CommandDelay = TimeSpan.FromSeconds(30);
 
-        public static void DeleteCommandLater(Telegram.Bot.ITelegramBotClient bot, Message command, Message reply) =>
+        public static void DeleteCommandLater(ITelegramBotClient bot, Message command, Message reply) =>
             DeleteLater(bot, command.Chat.Id, CommandDelay, command.MessageId, reply.MessageId);
 
-        public static void DeleteLater(Telegram.Bot.ITelegramBotClient bot, long chatId, TimeSpan delay, params int[] messageIds)
+        public static void DeleteLater(ITelegramBotClient bot, long chatId, TimeSpan delay, params int[] messageIds)
         {
             _ = Task.Run(async () =>
             {

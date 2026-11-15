@@ -55,7 +55,7 @@ namespace AnikiChatBot.Modules
         private readonly QuoteSettingsStore _settings;
         private readonly Random _random;
         private readonly Dictionary<long, List<Message>> _recent = [];
-        private readonly ChatRateLimit _randomLimit = new(4, TimeSpan.FromSeconds(30));
+        private readonly ChatRateLimit _randomLimit = new(4, TimeSpan.FromSeconds(30), "qrand_limit.json");
         private string _botUsername = "";
 
         public QuoteModule(QuoteStore? store = null, Random? random = null, QuoteSettingsStore? settings = null)
@@ -290,7 +290,7 @@ namespace AnikiChatBot.Modules
                 return;
             }
 
-            if (!await IsAdminAsync(bot, command, ct))
+            if (!await ChatAdmins.IsAdminAsync(bot, command, ct))
             {
                 await ReplyAsync(bot, command, "Менять цвет цитат могут только админы.", ct);
                 return;
@@ -314,7 +314,7 @@ namespace AnikiChatBot.Modules
 
         private async Task ToggleRatingAsync(ITelegramBotClient bot, Message command, CancellationToken ct)
         {
-            if (!await IsAdminAsync(bot, command, ct))
+            if (!await ChatAdmins.IsAdminAsync(bot, command, ct))
             {
                 await ReplyAsync(bot, command, "Включать и выключать оценки могут только админы.", ct);
                 return;
@@ -323,18 +323,6 @@ namespace AnikiChatBot.Modules
             bool off = !_settings.Get(command.Chat.Id).RatingOff;
             _settings.Update(command.Chat.Id, s => s.RatingOff = off);
             await ReplyAsync(bot, command, off ? "Новые цитаты будут без кнопок 👍 и 👎." : "Новые цитаты снова с кнопками 👍 и 👎.", ct);
-        }
-
-        private static async Task<bool> IsAdminAsync(ITelegramBotClient bot, Message command, CancellationToken ct)
-        {
-            if (command.SenderChat?.Id == command.Chat.Id)
-                return true;
-
-            if (command.From is not { } user)
-                return false;
-
-            var member = await bot.GetChatMember(command.Chat.Id, user.Id, ct);
-            return member.Status is ChatMemberStatus.Administrator or ChatMemberStatus.Creator;
         }
 
         private const string NoTopQuotes = "Пока нет цитат с плюсами. Сделай цитату через /q и поставь 👍.";

@@ -12,6 +12,7 @@ namespace AnikiChatBot.Modules
         public static readonly BotCommand[] Commands =
         [
             new BotCommand { Command = "noreply", Description = "Выключить или включить автоответы для себя" },
+            new BotCommand { Command = "forget", Description = "Забыть автоответ (ответом на сообщение, для админов)" },
         ];
 
         const string DefaultFilePath = "replies.txt";
@@ -35,7 +36,7 @@ namespace AnikiChatBot.Modules
         readonly StatsService? stats;
         readonly string optOutPath;
         readonly HashSet<long> optedOut;
-        readonly ChatRateLimit replyLimit = new(4, TimeSpan.FromSeconds(30));
+        readonly ChatRateLimit replyLimit;
         string botUsername = "";
 
         public RepeaterModule(StatsService? stats = null, string filePath = DefaultFilePath, string optOutPath = DefaultOptOutPath)
@@ -44,6 +45,7 @@ namespace AnikiChatBot.Modules
             this.filePath = filePath;
             this.optOutPath = optOutPath;
             optedOut = JsonFile.Load<HashSet<long>>(optOutPath, "Repeater") ?? [];
+            replyLimit = new(4, TimeSpan.FromSeconds(30), Path.ChangeExtension(filePath, ".limit.json"));
             LoadRepliesFromFile();
             saver = new PeriodicSaver(SaveRepliesToFile, saveLock, SaveInterval);
         }
@@ -54,7 +56,14 @@ namespace AnikiChatBot.Modules
 
         public async Task<bool> HandleCommand(ITelegramBotClient bot, Message message, CancellationToken ct)
         {
-            if (BotCommands.Parse(message.Text, botUsername)?.Command != "noreply" || message.From is not { IsBot: false } user)
+            var command = BotCommands.Parse(message.Text, botUsername)?.Command;
+            if (command == "forget")
+            {
+                await ForgetCommandAsync(bot, message, ct);
+                return true;
+            }
+
+            if (command != "noreply" || message.From is not { IsBot: false } user)
                 return false;
 
             string text = ToggleOptOut(user.Id)
@@ -64,6 +73,33 @@ namespace AnikiChatBot.Modules
             var sent = await bot.SendMessage(message.Chat.Id, text, replyParameters: message.MessageId, cancellationToken: ct);
             Cleanup.DeleteCommandLater(bot, message, sent);
             return true;
+        }
+
+        async Task ForgetCommandAsync(ITelegramBotClient bot, Message message, CancellationToken ct)
+        {
+            string text;
+            if (message.ReplyToMessage is not { Text: { } target } replied)
+                text = "Ответь /forget на фразу, на которую я отвечаю, или на мой ответ.";
+            else if (!await ChatAdmins.IsAdminAsync(bot, message, ct))
+                text = "Забывать фразы могут только админы.";
+            else
+                text = Forget(target, replied.From?.IsBot == true) > 0 ? "Забыл." : "Такой фразы нет в памяти.";
+
+            var sent = await bot.SendMessage(message.Chat.Id, text, replyParameters: message.MessageId, cancellationToken: ct);
+            Cleanup.DeleteCommandLater(bot, message, sent);
+        }
+
+        internal int Forget(string text, bool isAnswer)
+        {
+            string key = MatchKey(text);
+            var keys = isAnswer
+                ? repliesDatabase.Where(r => MatchKey(r.Value.Answer) == key).Select(r => r.Key).ToList()
+                : [key];
+
+            int removed = keys.Count(k => repliesDatabase.TryRemove(k, out _));
+            if (removed > 0)
+                MarkDirty();
+            return removed;
         }
 
         internal bool ToggleOptOut(long userId)

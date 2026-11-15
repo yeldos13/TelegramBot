@@ -143,6 +143,7 @@ namespace AnikiChatBot.Modules
             public bool Quiet { get; init; }
             public int Remaining;
             public int Sent;
+            public int Failed;
             public int TextUsed;
         }
 
@@ -237,6 +238,7 @@ namespace AnikiChatBot.Modules
                 return;
             }
 
+            bool delivered = false;
             try
             {
                 Directory.CreateDirectory(workDir);
@@ -271,6 +273,7 @@ namespace AnikiChatBot.Modules
 
                 await SendAsync(bot, message, ready, caption, replyToOriginal: post.Quiet,
                     onSent: () => Interlocked.Increment(ref post.Sent), timeout.Token);
+                delivered = true;
                 Interlocked.Increment(ref _sentCount);
                 _stats?.RecordMedia(message.Chat.Id);
             }
@@ -293,7 +296,10 @@ namespace AnikiChatBot.Modules
                 _slots.Release();
                 try { Directory.Delete(workDir, recursive: true); } catch { }
 
-                if (Interlocked.Decrement(ref post.Remaining) == 0 && post.Sent > 0 && !post.Quiet)
+                if (!delivered)
+                    Interlocked.Increment(ref post.Failed);
+
+                if (Interlocked.Decrement(ref post.Remaining) == 0 && post.Sent > 0 && post.Failed == 0 && !post.Quiet)
                 {
                     try
                     {

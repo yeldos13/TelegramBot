@@ -19,7 +19,7 @@ namespace AnikiChatBot.Modules
         private static readonly TimeSpan DuplicateWindow = TimeSpan.FromMinutes(2);
 
         private readonly ConcurrentDictionary<(long ChatId, long UserId), DateTime> _recent = new();
-        private readonly ChatRateLimit _limit = new(3, TimeSpan.FromMinutes(1));
+        private readonly ChatRateLimit _limit = new(3, TimeSpan.FromMinutes(1), "welcome_limit.json");
 
         public bool Enabled => File.Exists(videoPath) && File.Exists(fontPath) && File.Exists(ffmpegPath);
 

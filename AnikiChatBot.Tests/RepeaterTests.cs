@@ -141,6 +141,49 @@ namespace AnikiChatBot.Tests
         }
 
         [Fact]
+        public void Rate_limit_survives_restart()
+        {
+            string path = Path.Combine(_dir, "limit.json");
+            var t = new DateTime(2026, 1, 1);
+            var limit = new ChatRateLimit(2, TimeSpan.FromSeconds(30), path);
+            Assert.True(limit.TryTake(1, t));
+            Assert.True(limit.TryTake(1, t));
+
+            var restarted = new ChatRateLimit(2, TimeSpan.FromSeconds(30), path);
+            Assert.False(restarted.TryTake(1, t.AddSeconds(5)));
+            Assert.True(restarted.TryTake(1, t.AddSeconds(30)));
+        }
+
+        [Fact]
+        public void Forget_removes_by_trigger_or_by_answer()
+        {
+            File.WriteAllLines(DbPath, ["привет:::здарова", "хай:::здарова", "пока:::бб"]);
+            var module = NewModule();
+
+            Assert.Equal(1, module.Forget("Пока!", isAnswer: false));
+            Assert.Equal(2, module.Forget("здарова", isAnswer: true));
+            Assert.Equal(0, module.Forget("нет такой", isAnswer: false));
+            Assert.Equal(0, module.Count);
+        }
+
+        [Fact]
+        public void Chat_settings_toggle_per_chat_and_persist()
+        {
+            string path = Path.Combine(_dir, "chat_settings.json");
+            var settings = new ChatSettingsModule(path);
+
+            Assert.True(settings.IsOn(1, ChatSettingsModule.Gifs));
+            Assert.False(settings.Toggle(1, ChatSettingsModule.Gifs));
+            Assert.True(settings.IsOn(2, ChatSettingsModule.Gifs));
+            Assert.False(new ChatSettingsModule(path).IsOn(1, ChatSettingsModule.Gifs));
+            Assert.True(settings.Toggle(1, ChatSettingsModule.Gifs));
+
+            Assert.Equal(ChatSettingsModule.Welcome, ChatSettingsModule.FindFeature("Приветствие"));
+            Assert.Equal(ChatSettingsModule.Replies, ChatSettingsModule.FindFeature("replies"));
+            Assert.Null(ChatSettingsModule.FindFeature(""));
+        }
+
+        [Fact]
         public void Rate_limit_allows_four_per_window_per_chat()
         {
             var limit = new ChatRateLimit(4, TimeSpan.FromSeconds(30));
