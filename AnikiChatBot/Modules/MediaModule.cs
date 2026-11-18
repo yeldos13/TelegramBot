@@ -18,7 +18,7 @@ namespace AnikiChatBot.Modules
         private const int AlbumSize = 10;
         private const int MaxLinksPerMessage = 3;
 
-        private static readonly Regex LinkRegex = new(@"https?://[^\s<>""']+", RegexOptions.Compiled);
+        private static readonly Regex LinkRegex = new(@"https?://[^\s<>""']+|(?<![\w@/.:-])(?:[a-z0-9-]+\.)+[a-z]{2,}/[^\s<>""']+",RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         private const int MaxParallel = 1;
 
@@ -154,7 +154,7 @@ namespace AnikiChatBot.Modules
                 return Task.CompletedTask;
 
             var links = ExtractLinkStrings(text)
-                .Select(link => (Link: link, Uri: new Uri(link)))
+                .Select(link => (Link: link, Uri: ToUri(link)))
                 .Select(x => (x.Link, x.Uri, Source: FindSource(x.Uri)))
                 .Where(x => x.Source != null)
                 .ToList();
@@ -185,7 +185,14 @@ namespace AnikiChatBot.Modules
         public static bool IsQuiet(string textWithoutLinks) => QuietRegex.IsMatch(textWithoutLinks);
 
         public static IEnumerable<Uri> ExtractLinks(string text) =>
-            ExtractLinkStrings(text).Select(link => new Uri(link));
+            ExtractLinkStrings(text).Select(ToUri);
+
+        private static Uri ToUri(string link) => new(WithScheme(link));
+
+        private static string WithScheme(string link) =>
+            link.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || link.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+                ? link
+                : "https://" + link;
 
         private static IEnumerable<string> ExtractLinkStrings(string text)
         {
@@ -193,7 +200,7 @@ namespace AnikiChatBot.Modules
                 .Select(m => m.Value.TrimEnd('.', ',', '!', '?', ')', ']'))
                 .Distinct()
                 .Take(MaxLinksPerMessage)
-                .Where(link => Uri.TryCreate(link, UriKind.Absolute, out _));
+                .Where(link => Uri.TryCreate(WithScheme(link), UriKind.Absolute, out _));
         }
 
         public static string RemoveLinks(string text, IEnumerable<string> links)

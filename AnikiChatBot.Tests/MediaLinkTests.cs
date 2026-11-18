@@ -69,6 +69,16 @@ namespace AnikiChatBot.Tests
             Assert.Equal(["https://x.com/a/status/1", "https://www.tiktok.com/@a/video/2"], links);
         }
 
+
+        [Fact]
+        public void Extracts_links_without_scheme_only_with_path()
+        {
+            var links = MediaModule.ExtractLinks("глянь instagram.com/reel/abc и www.tiktok.com/@a/video/2, а ещё зайди на x.com или пиши a@x.com/b")
+                .Select(u => u.ToString())
+                .ToList();
+
+            Assert.Equal(["https://instagram.com/reel/abc", "https://www.tiktok.com/@a/video/2"], links);
+        }
         [Fact]
         public void Caption_has_author_link_and_escapes_html()
         {
