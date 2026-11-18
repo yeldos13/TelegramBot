@@ -188,10 +188,25 @@ namespace AnikiChatBot.Tests
         }
 
         [Fact]
+        public void Trust_lifts_newcomer_limit_in_all_chats()
+        {
+            var module = new NewcomerLinksModule(new OwnerNotifier("owner"), _newcomersFile);
+            var now = DateTime.UtcNow;
+            module.RecordJoin(1, 42, now);
+            module.RecordJoin(2, 42, now);
+
+            Assert.True(module.Trust(42));
+            Assert.False(module.IsNewcomer(1, 42, now));
+            Assert.False(module.IsNewcomer(2, 42, now));
+            Assert.False(new NewcomerLinksModule(new OwnerNotifier("owner"), _newcomersFile).IsNewcomer(1, 42, now));
+            Assert.False(module.Trust(42));
+        }
+
+        [Fact]
         public void Join_notice_names_chat_and_member()
         {
             Assert.Equal(
-                "👋 В «Чат» новый участник: Вася (@vasya) (id 42)\nПервые 24 ч его ссылки я буду удалять и пересылать тебе.",
+                "👋 В «Чат» новый участник: Вася (@vasya) (id 42)\nПервые 24 ч его ссылки я буду удалять и пересылать тебе. Снять ограничение: /trust 42",
                 NewcomerLinksModule.BuildJoinNotice("Чат", "Вася (@vasya)", 42));
         }
 

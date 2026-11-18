@@ -84,7 +84,7 @@ namespace AnikiChatBot.Modules
 
         public static string BuildJoinNotice(string chatTitle, string name, long userId) =>
             $"👋 В «{chatTitle}» новый участник: {name} (id {userId})\n" +
-            $"Первые {NewcomerPeriod.TotalHours:0} ч его ссылки я буду удалять и пересылать тебе.";
+            $"Первые {NewcomerPeriod.TotalHours:0} ч его ссылки я буду удалять и пересылать тебе. Снять ограничение: /trust {userId}";
 
         internal string? RegisterRecentJoin(long chatId, string? chatTitle, long userId, string name, DateTime nowUtc)
         {
@@ -103,6 +103,51 @@ namespace AnikiChatBot.Modules
             }
         }
 
+        private string _botUsername = "";
+
+        public void SetBotUsername(string? username) => _botUsername = username ?? "";
+
+        public bool Trust(long userId)
+        {
+            lock (_lock)
+            {
+                bool removed = false;
+                foreach (var users in _joined.Values)
+                    removed |= users.Remove(userId);
+
+                if (removed)
+                    Save();
+                return removed;
+            }
+        }
+
+        public string TrustText(long? userId, string? name = null)
+        {
+            if (userId is not { } id)
+                return "Ответь /trust на сообщение новичка или напиши /trust id (id есть в уведомлении о входе).";
+
+            string who = name ?? $"id {id}";
+            return Trust(id) ? $"✅ Снял ограничение: ссылки от {who} больше не удаляю." : $"{who} и так без ограничений.";
+        }
+
+        public async Task<bool> HandleCommand(ITelegramBotClient bot, Message message, CancellationToken ct)
+        {
+            if (BotCommands.Parse(message.Text, _botUsername) is not { Command: "trust" } command)
+                return false;
+
+            string text;
+            if (!_notifier.IsOwner(message.From))
+                text = "Эта команда только для владельца бота.";
+            else if (message.ReplyToMessage?.From is { IsBot: false } target)
+                text = TrustText(target.Id, Users.NameWithUsername(target));
+            else
+                text = TrustText(long.TryParse(command.Args, out long id) ? id : null);
+
+            var sent = await bot.SendMessage(message.Chat.Id, text, replyParameters: message.MessageId, cancellationToken: ct);
+            AnikiChatBot.Cleanup.DeleteCommandLater(bot, message, sent);
+            return true;
+        }
+
         public async Task<bool> HandleMessage(ITelegramBotClient bot, Message message, CancellationToken ct)
         {
             if (message.From is not { IsBot: false } user
@@ -114,7 +159,7 @@ namespace AnikiChatBot.Modules
             string chatTitle = message.Chat.Title ?? message.Chat.Id.ToString();
 
             await _notifier.ForwardToOwnerAsync(message.Chat.Id, message.MessageId,
-                $"🔗 Новичок {name} прислал ссылку в «{chatTitle}» — сообщение удалено из чата:", ct);
+                $"🔗 Новичок {name} прислал ссылку в «{chatTitle}» — сообщение удалено из чата. Снять ограничение: /trust {user.Id}", ct);
 
             try
             {

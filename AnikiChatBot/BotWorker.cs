@@ -150,6 +150,7 @@ namespace AnikiChatBot
             _membersModule.SetBotId(me.Id);
             _pigModule.SetBotUsername(me.Username);
             _helpModule.SetBotUsername(me.Username);
+            _newcomerModule.SetBotUsername(me.Username);
             _chatSettings.SetBotUsername(me.Username);
             _spamModule.SetBotUsername(me.Username);
             _funModule.SetBotUsername(me.Username);
@@ -409,6 +410,7 @@ namespace AnikiChatBot
             _quoteModule.Remember(message);
 
             if (await HandledByAsync("Moderation", () => _spamModule.HandleModerationCommand(bot, message, ct))
+                || await HandledByAsync("Trust", () => _newcomerModule.HandleCommand(bot, message, ct))
                 || await HandledByAsync("Help", () => _helpModule.HandleCommand(bot, message, ct))
                 || await HandledByAsync("Settings", () => _chatSettings.HandleCommand(bot, message, ct))
                 || await HandledByAsync("Fun", () => _funModule.HandleCommand(bot, message, ct))
@@ -435,7 +437,8 @@ namespace AnikiChatBot
                 "/status — состояние бота\n" +
                 "/log — последние 30 строк лога (/log 80 — больше)\n" +
                 "/restart — перезапустить бота\n" +
-                "В чате: /mutelist — кого замьютил бот, /unmute — снять мут";
+                "/trust id — снять с новичка ограничение на ссылки\n" +
+                "В чате: /mutelist — кого замьютил бот, /unmute — снять мут, /trust — ответом снять ограничение на ссылки";
 
             if (command == "/restart")
             {
@@ -447,6 +450,7 @@ namespace AnikiChatBot
             {
                 "/start" => "Привет! Сюда буду присылать уведомления об ошибках бота.\n\n" + commands,
                 "/status" => await BuildStatusAsync(ct),
+                "/trust" => _newcomerModule.TrustText(long.TryParse(args, out long trustId) ? trustId : null),
                 "/log" => FileLog.ReadTail(Path.Combine(AppContext.BaseDirectory, "logs"), ParseLogLines(args)),
                 _ => "Команды:\n" + commands
             };
