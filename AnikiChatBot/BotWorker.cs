@@ -29,9 +29,7 @@ namespace AnikiChatBot
 
         private OwnerNotifier _notifier = null!;
         private readonly StatsService _stats = new StatsService();
-        private readonly Modules.Pig.PigStore _pigStore = new Modules.Pig.PigStore();
         private readonly MuteStore _mutes = new MuteStore();
-        private readonly PigModule _pigModule;
         private readonly HelpModule _helpModule = new HelpModule();
         private readonly ChatSettingsModule _chatSettings = new ChatSettingsModule();
         private readonly SteamGiveawaysModule _steamModule = new SteamGiveawaysModule();
@@ -50,14 +48,12 @@ namespace AnikiChatBot
         public BotWorker(IConfiguration config)
         {
             _config = config;
-            _pigModule = new PigModule(_pigStore, stats: _stats);
             _funModule = new FunModule(_stats, mutes: _mutes);
         }
 
         private void FlushAll()
         {
             _stats.Flush();
-            _pigStore.Flush();
             _repeaterModule?.Flush();
         }
 
@@ -148,7 +144,6 @@ namespace AnikiChatBot
             );
 
             _membersModule.SetBotId(me.Id);
-            _pigModule.SetBotUsername(me.Username);
             _helpModule.SetBotUsername(me.Username);
             _newcomerModule.SetBotUsername(me.Username);
             _chatSettings.SetBotUsername(me.Username);
@@ -160,7 +155,7 @@ namespace AnikiChatBot
             _currencyModule.SetBotUsername(me.Username);
 
             await RunModuleAsync("Commands", () => botClient.SetMyCommands(
-                [HelpModule.Command, .. PigModule.Commands, .. FunModule.Commands, .. QuoteModule.Commands, .. RepeaterModule.Commands, .. WeatherModule.Commands, .. CurrencyModule.Commands, .. ChatSettingsModule.Commands],
+                [HelpModule.Command, .. FunModule.Commands, .. QuoteModule.Commands, .. RepeaterModule.Commands, .. WeatherModule.Commands, .. CurrencyModule.Commands, .. ChatSettingsModule.Commands],
                 scope: new Telegram.Bot.Types.BotCommandScopeAllGroupChats(), cancellationToken: ct));
             Console.WriteLine($"Bot @{me.Username} started. Allowed chats count: {_allowedChatIds.Count}, replies: {_repeaterModule.Count}");
 
@@ -182,7 +177,6 @@ namespace AnikiChatBot
 
         public static readonly TimeSpan MorningRatesWindow = TimeSpan.FromHours(3);
         private static readonly TimeSpan SteamCheckInterval = TimeSpan.FromHours(12);
-        private readonly Dictionary<long, string> _pendingPigOfDay = new();
         private readonly Dictionary<long, string> _pendingReports = new();
         private CancellationToken _stopping;
 
@@ -200,7 +194,6 @@ namespace AnikiChatBot
         private async Task DailyPostsLoopAsync(ITelegramBotClient bot, CancellationToken ct)
         {
             var ratesTime = ParseTime(_config["MorningRatesTime"], new TimeOnly(9, 0));
-            var pigTime = ParseTime(_config["PigOfDayTime"], new TimeOnly(12, 0));
 
             while (true)
             {
@@ -226,22 +219,6 @@ namespace AnikiChatBot
                         _currencyModule.MarkMorningPosted(today);
                         Console.WriteLine("[Currency] Утренние курсы отправлены");
                     });
-                }
-
-                if (time >= pigTime)
-                {
-                    foreach (long chatId in _allowedChatIds)
-                    {
-                        if (_pigModule.PickPigOfDayIfNotChosen(chatId) is { } text)
-                            _pendingPigOfDay[chatId] = text;
-
-                        if (_pendingPigOfDay.TryGetValue(chatId, out var pending))
-                            await RunModuleAsync("PigOfDay", async () =>
-                            {
-                                await bot.SendMessage(chatId, pending, cancellationToken: ct);
-                                _pendingPigOfDay.Remove(chatId);
-                            });
-                    }
                 }
 
                 await Task.Delay(TimeSpan.FromMinutes(1), ct);
@@ -284,7 +261,7 @@ namespace AnikiChatBot
 
                     foreach (long chatId in _allowedChatIds)
                         _pendingReports[chatId] = StatsService.BuildReport(
-                            _stats.GetChat(chatId), periodStart, now, _config["OwnerUsername"], _pigModule.GetLeader(chatId));
+                            _stats.GetChat(chatId), periodStart, now, _config["OwnerUsername"], null);
                     _stats.StartNewPeriod(now);
                 }
 
@@ -368,7 +345,6 @@ namespace AnikiChatBot
             {
                 if (_allowedChatIds.Contains(callbackMessage.Chat.Id))
                 {
-                    await RunModuleAsync("Pig", () => _pigModule.HandleCallback(bot, query, ct));
                     await RunModuleAsync("Quote", () => _quoteModule.HandleCallback(bot, query, ct));
                 }
                 return;
@@ -416,8 +392,7 @@ namespace AnikiChatBot
                 || await HandledByAsync("Fun", () => _funModule.HandleCommand(bot, message, ct))
                 || await HandledByAsync("Quote", () => _quoteModule.HandleCommand(bot, message, ct))
                 || await HandledByAsync("Repeater", () => _repeaterModule.HandleCommand(bot, message, ct))
-                || await HandledByAsync("Weather", () => Task.FromResult(_weatherModule.HandleMessage(bot, message, ct)))
-                || await HandledByAsync("Pig", () => _pigModule.HandleCommand(bot, message, ct)))
+                || await HandledByAsync("Weather", () => Task.FromResult(_weatherModule.HandleMessage(bot, message, ct))))
                 return;
 
             await RunModuleAsync("Currency", () => _currencyModule.HandleCurrencyCommand(bot, update, ct));
