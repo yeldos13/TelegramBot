@@ -140,12 +140,9 @@ namespace AnikiChatBot.Tests
 
             for (int i = 0; i < 3; i++) stats.RecordMessage(-1, 1, "Вася");
             for (int i = 0; i < 5; i++) stats.RecordMessage(-1, 2, "Петя");
-            stats.RecordGrowth(-1, 1, "Вася", 12);
-            stats.RecordDuelWin(-1, 1, "Вася");
 
             string text = fun.Stats(-1, vasya);
             Assert.Contains("💬 Сообщений: 3 — 2-е место из 2", text);
-            Assert.Contains("🐷 Игра: +12 т, побед в дуэлях: 1", text);
         }
     }
 }

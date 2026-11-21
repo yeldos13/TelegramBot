@@ -24,12 +24,9 @@ namespace AnikiChatBot
         public class WeekPlayer
         {
             public string Name { get; set; } = "";
-            public int Growth { get; set; }
-            public int DuelWins { get; set; }
             public int Messages { get; set; }
         }
 
-        public record GameLeader(string Name, int Size);
 
         public class State
         {
@@ -69,12 +66,6 @@ namespace AnikiChatBot
 
         public void RecordLeft(long chatId, string name) => Update(chatId, s => s.LeftMembers.Add(name));
 
-        public void RecordGrowth(long chatId, long userId, string name, int change) =>
-            Update(chatId, s => GetPlayer(s, userId, name).Growth += change);
-
-        public void RecordDuelWin(long chatId, long userId, string name) =>
-            Update(chatId, s => GetPlayer(s, userId, name).DuelWins++);
-
         public void RecordMessage(long chatId, long userId, string name) =>
             Update(chatId, s => GetPlayer(s, userId, name).Messages++);
 
@@ -113,7 +104,7 @@ namespace AnikiChatBot
                     JoinedMembers = s.JoinedMembers.ToList(),
                     LeftMembers = s.LeftMembers.ToList(),
                     Players = s.Players.ToDictionary(p => p.Key,
-                        p => new WeekPlayer { Name = p.Value.Name, Growth = p.Value.Growth, DuelWins = p.Value.DuelWins, Messages = p.Value.Messages })
+                        p => new WeekPlayer { Name = p.Value.Name, Messages = p.Value.Messages })
                 };
             }
         }
@@ -137,7 +128,7 @@ namespace AnikiChatBot
             }
         }
 
-        public static string BuildReport(ChatStats stats, DateTime from, DateTime to, string? ownerUsername, GameLeader? leader = null)
+        public static string BuildReport(ChatStats stats, DateTime from, DateTime to, string? ownerUsername)
         {
             var sb = new StringBuilder();
             sb.AppendLine($"📊 Итоги недели ({from:dd.MM} – {to:dd.MM})");
@@ -162,26 +153,6 @@ namespace AnikiChatBot
                 string[] medals = ["🥇", "🥈", "🥉"];
                 for (int i = 0; i < active.Count; i++)
                     sb.AppendLine($"{medals[i]} {active[i].Name} — {active[i].Messages} сообщ.");
-            }
-
-            var game = new List<string>();
-            if (leader != null)
-                game.Add($"Самая тяжёлая свинья: {leader.Name} — {leader.Size} т");
-
-            var grower = stats.Players.Values.Where(p => p.Growth > 0).MaxBy(p => p.Growth);
-            if (grower != null)
-                game.Add($"Больше всех набрал: {grower.Name} (+{grower.Growth} т)");
-
-            var duelist = stats.Players.Values.Where(p => p.DuelWins > 0).MaxBy(p => p.DuelWins);
-            if (duelist != null)
-                game.Add($"Больше всех побед в дуэлях: {duelist.Name} ({duelist.DuelWins})");
-
-            if (game.Count > 0)
-            {
-                sb.AppendLine();
-                sb.AppendLine("🐷 Игра");
-                foreach (var line in game)
-                    sb.AppendLine(line);
             }
 
             string? tag = ownerUsername?.TrimStart('@');

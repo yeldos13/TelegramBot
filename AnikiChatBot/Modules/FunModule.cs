@@ -70,9 +70,6 @@ namespace AnikiChatBot.Modules
                 $"💬 Сообщений: {me.Messages} — {place}-е место из {ranked.Count}"
             };
 
-            if (me.Growth != 0 || me.DuelWins > 0)
-                lines.Add($"🐷 Игра: {(me.Growth > 0 ? "+" : "")}{me.Growth} т, побед в дуэлях: {me.DuelWins}");
-
             return string.Join("\n", lines);
         }
 

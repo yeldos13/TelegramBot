@@ -125,27 +125,5 @@ namespace AnikiChatBot.Tests
                 report);
             Assert.DoesNotContain("Маша", report);
         }
-
-        [Fact]
-        public void Report_includes_game_section()
-        {
-            var stats = new StatsService(_file);
-            stats.RecordGrowth(-1, 1, "Вася", 15);
-            stats.RecordGrowth(-1, 2, "Петя", 30);
-            stats.RecordGrowth(-1, 2, "Петя", -5);
-            stats.RecordDuelWin(-1, 1, "Вася");
-            stats.RecordDuelWin(-1, 1, "Вася");
-
-            string report = StatsService.BuildReport(stats.GetChat(-1), DateTime.Parse("2026-09-20"), DateTime.Parse("2026-09-27"),
-                "owner", new StatsService.GameLeader("Вася", 120)).Replace("\r\n", "\n");
-
-            Assert.Contains(
-                "🐷 Игра\n" +
-                "Самая тяжёлая свинья: Вася — 120 т\n" +
-                "Больше всех набрал: Петя (+25 т)\n" +
-                "Больше всех побед в дуэлях: Вася (2)\n\n" +
-                "@owner",
-                report);
-        }
     }
 }

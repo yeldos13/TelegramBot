@@ -261,7 +261,7 @@ namespace AnikiChatBot
 
                     foreach (long chatId in _allowedChatIds)
                         _pendingReports[chatId] = StatsService.BuildReport(
-                            _stats.GetChat(chatId), periodStart, now, _config["OwnerUsername"], null);
+                            _stats.GetChat(chatId), periodStart, now, _config["OwnerUsername"]);
                     _stats.StartNewPeriod(now);
                 }
 
