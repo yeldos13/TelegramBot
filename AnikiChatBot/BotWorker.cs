@@ -44,6 +44,7 @@ namespace AnikiChatBot
         private MembersModule _membersModule = null!;
         private RandomGifModule _gifModule = null!;
         private WelcomeModule _welcomeModule = null!;
+        private CaptchaModule _captchaModule = null!;
 
         public BotWorker(IConfiguration config)
         {
@@ -107,6 +108,7 @@ namespace AnikiChatBot
             _membersModule = new MembersModule(_config["OwnerUsername"], _stats);
             _spamModule = new SpamModule(_config["OwnerUsername"], _mutes, _stats, _notifier.IsOwner);
             _newcomerModule = new NewcomerLinksModule(_notifier, stats: _stats);
+            _captchaModule = new CaptchaModule(_notifier, (chatId, userId) => _mutes.List(chatId).Any(m => m.UserId == userId));
 
             MediaModule.CleanupTempFiles();
 
@@ -171,7 +173,7 @@ namespace AnikiChatBot
                 _notifier.Notify("restart-done", "✅ Перезапущен по команде.");
             }
 
-            await await Task.WhenAny(UpdateYtDlpLoopAsync(ct), WeeklyReportLoopAsync(botClient, ct), CookieCheckLoopAsync(ct),
+            await await Task.WhenAny(UpdateYtDlpLoopAsync(ct), WeeklyReportLoopAsync(botClient, ct), CookieCheckLoopAsync(ct), CaptchaLoopAsync(botClient, ct), BackupLoopAsync(ct),
                 DailyPostsLoopAsync(botClient, ct), SteamGiveawaysLoopAsync(botClient, ct));
         }
 
@@ -327,15 +329,51 @@ namespace AnikiChatBot
             }
         }
 
+        private void HandleJoins(ITelegramBotClient bot, Update update, long chatId, CancellationToken ct)
+        {
+            _newcomerModule.HandleJoins(update);
+            if (_chatSettings.IsOn(chatId, ChatSettingsModule.Captcha))
+                _captchaModule.HandleJoins(bot, update, ct);
+            else if (_chatSettings.IsOn(chatId, ChatSettingsModule.Welcome))
+                _welcomeModule.HandleJoins(bot, update, ct);
+        }
+
+        private void OnCaptchaPassed(ITelegramBotClient bot, Chat chat, User user, CancellationToken ct)
+        {
+            if (_chatSettings.IsOn(chat.Id, ChatSettingsModule.Welcome))
+                _welcomeModule.Welcome(bot, chat, user, ct);
+        }
+
+        private async Task CaptchaLoopAsync(ITelegramBotClient bot, CancellationToken ct)
+        {
+            while (true)
+            {
+                await RunModuleAsync("Captcha", () => _captchaModule.KickExpiredAsync(bot, ct));
+                await Task.Delay(TimeSpan.FromSeconds(10), ct);
+            }
+        }
+
+        private async Task BackupLoopAsync(CancellationToken ct)
+        {
+            while (true)
+            {
+                await RunModuleAsync("Backup", () =>
+                {
+                    if (Backup.Run(AppContext.BaseDirectory, Path.Combine(AppContext.BaseDirectory, "backups"), DateTime.Now) is { } dir)
+                        Console.WriteLine($"[Backup] Сохранил данные в {dir}");
+                    return Task.CompletedTask;
+                });
+                await Task.Delay(TimeSpan.FromHours(1), ct);
+            }
+        }
+
         private async Task HandleUpdateAsync(ITelegramBotClient bot, Update update, CancellationToken ct)
         {
             if (update.ChatMember is { } change)
             {
                 if (_allowedChatIds.Contains(change.Chat.Id))
                 {
-                    _newcomerModule.HandleJoins(update);
-                    if (_chatSettings.IsOn(change.Chat.Id, ChatSettingsModule.Welcome))
-                        _welcomeModule.HandleJoins(bot, update, ct);
+                    HandleJoins(bot, update, change.Chat.Id, ct);
                     await RunModuleAsync("Members", () => _membersModule.HandleMembersUpdate(bot, update, ct));
                 }
                 return;
@@ -345,7 +383,8 @@ namespace AnikiChatBot
             {
                 if (_allowedChatIds.Contains(callbackMessage.Chat.Id))
                 {
-                    await RunModuleAsync("Quote", () => _quoteModule.HandleCallback(bot, query, ct));
+                    if (!await HandledByAsync("Captcha", () => _captchaModule.HandleCallback(bot, query, (chat, user) => OnCaptchaPassed(bot, chat, user, ct), ct)))
+                        await RunModuleAsync("Quote", () => _quoteModule.HandleCallback(bot, query, ct));
                 }
                 return;
             }
@@ -370,9 +409,7 @@ namespace AnikiChatBot
 
             if (message.NewChatMembers is { Length: > 0 })
             {
-                _newcomerModule.HandleJoins(update);
-                if (_chatSettings.IsOn(message.Chat.Id, ChatSettingsModule.Welcome))
-                    _welcomeModule.HandleJoins(bot, update, ct);
+                HandleJoins(bot, update, message.Chat.Id, ct);
                 return;
             }
 

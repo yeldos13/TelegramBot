@@ -39,6 +39,18 @@ namespace AnikiChatBot.Tests
         [InlineData("https://twitter.com/user/status/1790637656616943991?s=20", typeof(XSource))]
         [InlineData("https://mobile.twitter.com/user/status/1790637656616943991", typeof(XSource))]
         [InlineData("https://fxtwitter.com/user/status/1790637656616943991", typeof(XSource))]
+        [InlineData("https://www.reddit.com/r/videos/comments/1abcde/some_title/", typeof(YtDlpSource))]
+        [InlineData("https://www.reddit.com/r/videos/s/AbCdEf123", typeof(YtDlpSource))]
+        [InlineData("https://v.redd.it/abc123xyz", typeof(YtDlpSource))]
+        [InlineData("https://vk.com/video-12345_67890", typeof(YtDlpSource))]
+        [InlineData("https://vk.com/clip-12345_67890", typeof(YtDlpSource))]
+        [InlineData("https://vkvideo.ru/video-12345_67890", typeof(YtDlpSource))]
+        [InlineData("https://vk.com/feed?z=video-12345_67890", typeof(YtDlpSource))]
+        [InlineData("https://clips.twitch.tv/FunnyClipSlug-abc", typeof(YtDlpSource))]
+        [InlineData("https://www.twitch.tv/streamer/clip/FunnyClipSlug-abc", typeof(YtDlpSource))]
+        [InlineData("https://www.pinterest.com/pin/123456789/", typeof(YtDlpSource))]
+        [InlineData("https://ru.pinterest.com/pin/123456789/", typeof(YtDlpSource))]
+        [InlineData("https://pin.it/abc123", typeof(YtDlpSource))]
         public void Routes_link_to_source(string url, Type expected)
         {
             var source = _module.FindSource(new Uri(url));
@@ -54,6 +66,10 @@ namespace AnikiChatBot.Tests
         [InlineData("https://www.instagram.com/someuser/")]
         [InlineData("https://x.com/user")]
         [InlineData("https://example.com/p/abc")]
+        [InlineData("https://www.reddit.com/r/videos/")]
+        [InlineData("https://www.twitch.tv/streamer")]
+        [InlineData("https://vk.com/id12345")]
+        [InlineData("https://www.pinterest.com/someuser/")]
         public void Ignores_unsupported_links(string url)
         {
             Assert.Null(_module.FindSource(new Uri(url)));

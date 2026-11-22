@@ -240,7 +240,7 @@ namespace AnikiChatBot.Modules
 
         private static ChatPermissions FullPermissions() => SendPermissions(true);
 
-        private static ChatPermissions SendPermissions(bool allowed) => new ChatPermissions
+        internal static ChatPermissions SendPermissions(bool allowed) => new ChatPermissions
         {
             CanSendMessages = allowed,
             CanSendAudios = allowed,

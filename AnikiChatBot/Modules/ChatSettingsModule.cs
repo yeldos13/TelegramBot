@@ -8,10 +8,11 @@ namespace AnikiChatBot.Modules
         public const string Welcome = "welcome";
         public const string Gifs = "gifs";
         public const string Replies = "replies";
+        public const string Captcha = "captcha";
 
         public static readonly BotCommand[] Commands =
         [
-            new BotCommand { Command = "settings", Description = "Приветствие, гифки и автоответы в чате (для админов)" },
+            new BotCommand { Command = "settings", Description = "Приветствие, гифки, автоответы и капча в чате (для админов)" },
         ];
 
         private static readonly (string Key, string Name, string Alias)[] Features =
@@ -19,6 +20,7 @@ namespace AnikiChatBot.Modules
             (Welcome, "приветствие", "приветствие"),
             (Gifs, "случайные гифки", "гифки"),
             (Replies, "автоответы", "автоответы"),
+            (Captcha, "капча для новичков", "капча"),
         ];
 
         private readonly Dictionary<long, HashSet<string>> _off =

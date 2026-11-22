@@ -25,6 +25,12 @@ namespace AnikiChatBot.Modules
 
         public void HandleJoins(ITelegramBotClient bot, Update update, CancellationToken ct)
         {
+            foreach (var (chat, user) in MembersModule.GetJoinedMembers(update))
+                Welcome(bot, chat, user, ct);
+        }
+
+        public void Welcome(ITelegramBotClient bot, Chat chat, User user, CancellationToken ct)
+        {
             if (!Enabled)
                 return;
 
@@ -32,13 +38,8 @@ namespace AnikiChatBot.Modules
             foreach (var old in _recent.Where(x => now - x.Value > DuplicateWindow).ToList())
                 _recent.TryRemove(old.Key, out _);
 
-            foreach (var (chat, user) in MembersModule.GetJoinedMembers(update))
-            {
-                if (!_recent.TryAdd((chat.Id, user.Id), now) || !_limit.TryTake(chat.Id, now))
-                    continue;
-
+            if (_recent.TryAdd((chat.Id, user.Id), now) && _limit.TryTake(chat.Id, now))
                 _ = Task.Run(() => SendAsync(bot, chat.Id, user, ct), ct);
-            }
         }
 
         internal (string[] Lines, float Size) BuildText(User user)

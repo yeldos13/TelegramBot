@@ -79,7 +79,8 @@ namespace AnikiChatBot.Modules
                 new YouTubeSource(_ytDlp),
                 new InstagramSource(_ytDlp),
                 new TikTokSource(_ytDlp),
-                new XSource()
+                new XSource(),
+                .. YtDlpSource.Others(_ytDlp)
             ];
         }
 
