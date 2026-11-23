@@ -194,6 +194,9 @@ namespace AnikiChatBot.Modules.Media
     public class XSource : IMediaSource
     {
         private static readonly Regex StatusRegex = new(@"/status(?:es)?/(\d+)", RegexOptions.Compiled);
+        private readonly YtDlp _ytDlp;
+
+        public XSource(YtDlp ytDlp) => _ytDlp = ytDlp;
 
         public bool CanHandle(Uri uri)
         {
@@ -205,7 +208,18 @@ namespace AnikiChatBot.Modules.Media
         {
             string id = StatusRegex.Match(uri.AbsolutePath).Groups[1].Value;
 
-            using var doc = await MediaHttp.GetJsonAsync($"https://api.fxtwitter.com/status/{id}", ct);
+            JsonDocument doc;
+            try
+            {
+                doc = await MediaHttp.GetJsonAsync($"https://api.fxtwitter.com/status/{id}", ct);
+            }
+            catch (Exception ex) when (ex is HttpRequestException || ex is TaskCanceledException && !ct.IsCancellationRequested)
+            {
+                Console.Error.WriteLine($"[X] fxtwitter не ответил ({ex.Message}), качаю через yt-dlp");
+                return await _ytDlp.ExtractAsync($"https://x.com/i/status/{id}", workDir, ct);
+            }
+
+            using var _ = doc;
             if (!doc.RootElement.TryGetProperty("tweet", out var tweet)
                 || !tweet.TryGetProperty("media", out var media)
                 || !media.TryGetProperty("all", out var all)
