@@ -99,7 +99,7 @@ namespace AnikiChatBot.Modules
 
                 return $"🚨 Наплыв в «{chatTitle ?? chatId.ToString()}»: за {RaidWindow.TotalMinutes:0} минут зашли {inChat.Count} человек:\n" +
                        string.Join("\n", inChat.Select(j => "• " + j.Name)) +
-                       "\n\nСсылки от новичков я и так удаляю. Если это боты — проверь чат.";
+                       "\n\nСсылки и рекламу от новичков я и так удаляю. Если это боты — проверь чат.";
             }
         }
 
@@ -151,26 +151,48 @@ namespace AnikiChatBot.Modules
         public async Task<bool> HandleMessage(ITelegramBotClient bot, Message message, CancellationToken ct)
         {
             if (message.From is not { IsBot: false } user
-                || !HasLink(message)
                 || !IsNewcomer(message.Chat.Id, user.Id, DateTime.UtcNow))
+                return false;
+
+            string? what = HasLink(message) ? "ссылку" : LooksLikeAd(message) ? "похожее на рекламу" : null;
+            if (what is null)
                 return false;
 
             string name = Users.NameWithUsername(user);
             string chatTitle = message.Chat.Title ?? message.Chat.Id.ToString();
 
             await _notifier.ForwardToOwnerAsync(message.Chat.Id, message.MessageId,
-                $"🔗 Новичок {name} прислал ссылку в «{chatTitle}» — сообщение удалено из чата. Снять ограничение: /trust {user.Id}", ct);
+                $"🔗 Новичок {name} прислал {what} в «{chatTitle}» — сообщение удалено из чата. Снять ограничение: /trust {user.Id}", ct);
 
             try
             {
                 await bot.DeleteMessage(message.Chat.Id, message.MessageId, ct);
-                Console.WriteLine($"[Newcomer] Удалена ссылка от {name} в чате {message.Chat.Id}");
+                Console.WriteLine($"[Newcomer] Удалено сообщение ({what}) от {name} в чате {message.Chat.Id}");
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                Console.Error.WriteLine($"[Newcomer] Не удалось удалить ссылку от {name}: {ex.Message}");
+                Console.Error.WriteLine($"[Newcomer] Не удалось удалить сообщение от {name}: {ex.Message}");
             }
             return true;
+        }
+
+        private static readonly Regex AdRegex = new(
+            @"(пиш|напиш|обращ|стуч)\w*\s+(мне\s+)?в\s+(лс|личк|личн|директ)|(?<!\w)в\s+лс(?!\w)|заработ|подработ|доход\w*\s+от|пассивн\w+\s+доход|" +
+            @"удал[её]нн\w+\s+(работ|занят)|ищу\s+(людей|партн[её]р|сотрудник)|набира\w+\s+(людей|команд)|\d+\s*(\$|₽|руб|usdt|тыс|к)\S*\s+(в|за)\s+(день|недел|час)|" +
+            @"казино|ставк\w*\s+на\s+спорт|интим|18\+",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex MixedScriptRegex = new(
+            @"(?<!\w)(?=[а-яёa-z]*[а-яё])(?=[а-яёa-z]*[a-z])[а-яёa-z]{4,}(?!\w)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        public static bool LooksLikeAd(Message message)
+        {
+            var entities = (message.Entities ?? []).Concat(message.CaptionEntities ?? []);
+            if (entities.Any(e => e.Type is MessageEntityType.Mention or MessageEntityType.TextMention))
+                return true;
+
+            string text = message.Text ?? message.Caption ?? "";
+            return AdRegex.IsMatch(text) || MixedScriptRegex.IsMatch(text);
         }
 
         public static bool HasLink(Message message)

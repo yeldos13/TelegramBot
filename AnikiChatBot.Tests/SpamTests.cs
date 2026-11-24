@@ -145,6 +145,32 @@ namespace AnikiChatBot.Tests
             Assert.Equal(expected, NewcomerLinksModule.HasLink(new Message { Text = text }));
         }
 
+        [Theory]
+        [InlineData("Пишите мне в лс, есть тема", true)]
+        [InlineData("Заработок от 300$ в день без вложений", true)]
+        [InlineData("ищу людей на удалённую работу", true)]
+        [InlineData("зaрaбoтoк легко", true)]
+        [InlineData("200к в неделю", true)]
+        [InlineData("всем привет, я из Астаны", false)]
+        [InlineData("кто идёт на футбол в субботу?", false)]
+        [InlineData("скинул в telegram", false)]
+        public void Detects_ads(string text, bool expected)
+        {
+            Assert.Equal(expected, NewcomerLinksModule.LooksLikeAd(new Message { Text = text }));
+        }
+
+        [Fact]
+        public void Detects_mentions_as_ads()
+        {
+            var message = new Message
+            {
+                Text = "пиши @seller",
+                Entities = [new MessageEntity { Type = MessageEntityType.Mention, Offset = 5, Length = 7 }]
+            };
+
+            Assert.True(NewcomerLinksModule.LooksLikeAd(message));
+        }
+
         [Fact]
         public void Detects_hidden_text_links()
         {
