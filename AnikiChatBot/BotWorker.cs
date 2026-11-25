@@ -32,6 +32,7 @@ namespace AnikiChatBot
         private readonly MuteStore _mutes = new MuteStore();
         private readonly HelpModule _helpModule = new HelpModule();
         private readonly ChatSettingsModule _chatSettings = new ChatSettingsModule();
+        private WarnModule _warnModule = null!;
         private readonly SteamGiveawaysModule _steamModule = new SteamGiveawaysModule();
         private readonly WeatherModule _weatherModule = new WeatherModule();
         private SpamModule _spamModule = null!;
@@ -108,6 +109,7 @@ namespace AnikiChatBot
             _membersModule = new MembersModule(_config["OwnerUsername"], _stats);
             _spamModule = new SpamModule(_config["OwnerUsername"], _mutes, _stats, _notifier.IsOwner);
             _newcomerModule = new NewcomerLinksModule(_notifier, stats: _stats);
+            _warnModule = new WarnModule(_mutes);
             _captchaModule = new CaptchaModule(_notifier, (chatId, userId) => _mutes.List(chatId).Any(m => m.UserId == userId));
 
             MediaModule.CleanupTempFiles();
@@ -149,6 +151,7 @@ namespace AnikiChatBot
             _helpModule.SetBotUsername(me.Username);
             _newcomerModule.SetBotUsername(me.Username);
             _chatSettings.SetBotUsername(me.Username);
+            _warnModule.SetBotUsername(me.Username);
             _spamModule.SetBotUsername(me.Username);
             _funModule.SetBotUsername(me.Username);
             _quoteModule.SetBotUsername(me.Username);
@@ -157,7 +160,7 @@ namespace AnikiChatBot
             _currencyModule.SetBotUsername(me.Username);
 
             await RunModuleAsync("Commands", () => botClient.SetMyCommands(
-                [HelpModule.Command, .. FunModule.Commands, .. QuoteModule.Commands, .. RepeaterModule.Commands, .. WeatherModule.Commands, .. CurrencyModule.Commands, .. ChatSettingsModule.Commands],
+                [HelpModule.Command, .. FunModule.Commands, .. QuoteModule.Commands, .. RepeaterModule.Commands, .. WeatherModule.Commands, .. CurrencyModule.Commands, .. ChatSettingsModule.Commands, .. WarnModule.Commands],
                 scope: new Telegram.Bot.Types.BotCommandScopeAllGroupChats(), cancellationToken: ct));
             Console.WriteLine($"Bot @{me.Username} started. Allowed chats count: {_allowedChatIds.Count}, replies: {_repeaterModule.Count}");
 
@@ -426,6 +429,7 @@ namespace AnikiChatBot
                 || await HandledByAsync("Trust", () => _newcomerModule.HandleCommand(bot, message, ct))
                 || await HandledByAsync("Help", () => _helpModule.HandleCommand(bot, message, ct))
                 || await HandledByAsync("Settings", () => _chatSettings.HandleCommand(bot, message, ct))
+                || await HandledByAsync("Warn", () => _warnModule.HandleCommand(bot, message, ct))
                 || await HandledByAsync("Fun", () => _funModule.HandleCommand(bot, message, ct))
                 || await HandledByAsync("Quote", () => _quoteModule.HandleCommand(bot, message, ct))
                 || await HandledByAsync("Repeater", () => _repeaterModule.HandleCommand(bot, message, ct))
