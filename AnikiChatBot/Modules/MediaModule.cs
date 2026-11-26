@@ -379,7 +379,8 @@ namespace AnikiChatBot.Modules
             string? pendingCaption = caption;
             string? TakeCaption() => Interlocked.Exchange(ref pendingCaption, null);
 
-            foreach (var animation in items.Where(x => x.Kind == MediaKind.Animation))
+            var animations = items.Count == 1 ? items.Where(x => x.Kind == MediaKind.Animation).ToList() : [];
+            foreach (var animation in animations)
             {
                 await using var stream = File.OpenRead(animation.FilePath!);
                 await bot.SendAnimation(message.Chat.Id, InputFile.FromStream(stream, "animation.mp4"),
@@ -390,7 +391,7 @@ namespace AnikiChatBot.Modules
                 onSent();
             }
 
-            foreach (var chunk in items.Where(x => x.Kind != MediaKind.Animation).Chunk(AlbumSize))
+            foreach (var chunk in items.Except(animations).Chunk(AlbumSize))
             {
                 var streams = new List<Stream>();
 
