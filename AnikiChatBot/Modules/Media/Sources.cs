@@ -163,7 +163,36 @@ namespace AnikiChatBot.Modules.Media
                 Console.Error.WriteLine($"[TikTok] Не удалось разобрать страницу {id}: {ex.Message}");
             }
 
-            return await _ytDlp.ExtractAsync($"https://www.tiktok.com/@{author}/video/{id}", workDir, ct);
+            try
+            {
+                return await _ytDlp.ExtractAsync($"https://www.tiktok.com/@{author}/video/{id}", workDir, ct);
+            }
+            catch (InvalidOperationException ex)
+            {
+                Console.Error.WriteLine($"[TikTok] yt-dlp не смог {id}, пробую tikwm");
+                return await ExtractViaTikwmAsync(id, workDir, ct) ?? throw ex;
+            }
+        }
+
+        private static async Task<List<MediaItem>?> ExtractViaTikwmAsync(string id, string workDir, CancellationToken ct)
+        {
+            try
+            {
+                using var doc = await MediaHttp.GetJsonAsync($"https://www.tikwm.com/api/?url=https://www.tiktok.com/@_/video/{id}", ct);
+                if (doc.RootElement.GetInt("code") != 0 || !doc.RootElement.TryGetProperty("data", out var data))
+                    return null;
+
+                string path = Path.Combine(workDir, $"tikwm_{id}.mp4");
+                if (!await MediaHttp.DownloadAsync($"https://www.tikwm.com/video/media/play/{id}.mp4", path, MediaModule.MaxDownloadBytes, ct))
+                    return null;
+
+                return [new MediaItem { Kind = MediaKind.Video, FilePath = path, Duration = data.GetInt("duration") }];
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested)
+            {
+                Console.Error.WriteLine($"[TikTok] tikwm не помог {id}: {ex.Message}");
+                return null;
+            }
         }
 
         private static List<MediaItem> GetPhotos(JsonElement item)

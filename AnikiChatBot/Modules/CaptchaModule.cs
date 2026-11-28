@@ -121,8 +121,18 @@ namespace AnikiChatBot.Modules
 
             if (!isMuted(message.Chat.Id, userId))
             {
-                var chat = await bot.GetChat(message.Chat.Id, ct);
-                await bot.RestrictChatMember(message.Chat.Id, userId, chat.Permissions ?? SpamModule.SendPermissions(true), cancellationToken: ct);
+                try
+                {
+                    var chat = await bot.GetChat(message.Chat.Id, ct);
+                    await bot.RestrictChatMember(message.Chat.Id, userId, chat.Permissions ?? SpamModule.SendPermissions(true), cancellationToken: ct);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    string name = Users.NameWithUsername(query.From);
+                    Console.Error.WriteLine($"[Captcha] Не удалось снять ограничение с {name}: {ex.Message}");
+                    notifier?.Notify($"captcha-fail:{message.Chat.Id}:{userId}",
+                        $"⚠️ {name} (id {userId}) прошёл капчу в «{message.Chat.Title}», но снять ограничение не получилось — сними руками.");
+                }
             }
 
             await bot.AnswerCallbackQuery(query.Id, "Добро пожаловать!", cancellationToken: ct);
